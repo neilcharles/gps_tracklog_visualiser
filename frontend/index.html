@@ -1,0 +1,898 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Flight Viewer</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/cesium@1.123.0/Build/Cesium/Widgets/widgets.css">
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; font-family: system-ui, sans-serif; background: #000; }
+    #viewer { position: absolute; inset: 0; }
+    #panel {
+      position: absolute; top: 12px; left: 12px; z-index: 10;
+      background: rgba(30, 30, 34, .88); color: #eee; padding: 12px 14px; border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,.4); font-size: 14px; width: 330px;
+      max-height: calc(100% - 150px); overflow-y: auto;
+    }
+    #panel h1 { font-size: 16px; margin: 0 0 8px; }
+    #panel.hidden { display: none; }
+    .panel-head { display: flex; align-items: center; justify-content: space-between; margin: -4px 0 8px; }
+    .panel-head h2 { font-size: 15px; margin: 0; }
+    #panel .panel-head button { padding: 2px 9px; font-size: 13px; }
+    #panel-show {
+      position: absolute; top: 12px; left: 12px; z-index: 10; display: none;
+      background: rgba(30, 30, 34, .88); color: #eee; border: 1px solid #555; border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,.4); font: 14px system-ui, sans-serif; padding: 8px 12px; cursor: pointer;
+    }
+    #panel-show:hover { border-color: #888; }
+    #panel.hidden + #panel-show { display: block; }
+    #upload { display: none; }
+    #add-files { margin-bottom: 8px; }
+    #view-block {
+      background: rgba(255, 255, 255, .07); border: 1px solid #555; border-radius: 6px;
+      padding: 2px 10px; margin-bottom: 12px;
+    }
+    #view-block label { display: flex; align-items: center; gap: 10px; cursor: pointer; padding: 6px 0; }
+    #view-block label + label { border-top: 1px solid #444; }
+    #view-block input { width: 18px; height: 18px; margin: 0; cursor: pointer; flex: none; }
+    #view-block strong { display: block; }
+    #view-block span { color: #aaa; font-size: 12px; }
+    .empty { color: #aaa; font-size: 13px; padding: 4px 0; }
+    #toggles { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-bottom: 8px; }
+    #toggles label { cursor: pointer; }
+    #flights { list-style: none; margin: 0; padding: 0; }
+    .flight { border-top: 1px solid #444; padding: 8px 0; }
+    .flight-head { display: flex; align-items: center; gap: 8px; }
+    .flight-head input[type=color] {
+      width: 26px; height: 26px; padding: 0; border: none; background: none; cursor: pointer; flex: none;
+    }
+    .flight-name { flex: 1; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .flight-head button { font-size: 12px; padding: 2px 6px; }
+    .flight-head button.active { background: #ffd23f; }
+    .flight-meta { color: #aaa; font-size: 12px; margin: 4px 0 0 34px; }
+    #notice, #place-status { color: #ffcc66; margin-top: 6px; font-size: 13px; }
+    #place-status:empty { display: none; }
+    #error { color: #ff6b6b; margin-top: 6px; white-space: pre-line; }
+
+    /* Shared control look for the panel and playbar. */
+    #panel button, #playbar button, #playbar select {
+      background: rgba(255, 255, 255, .07); color: #eee; border: 1px solid #555; border-radius: 6px;
+      font: inherit; font-size: 13px; padding: 4px 10px; cursor: pointer;
+    }
+    #panel button:hover, #playbar button:hover, #playbar select:hover { border-color: #888; background: rgba(255, 255, 255, .12); }
+    #panel .flight-head button { font-size: 12px; padding: 2px 8px; }
+    #panel .flight-head button.active { background: #ffd23f; border-color: #ffd23f; color: #222; }
+    #playbar select option { background: #2a2a2f; }
+    #playbar button.toggle { white-space: nowrap; flex: none; }
+    #playbar button.toggle.active { background: #3b82f6; border-color: #3b82f6; color: #fff; }
+
+    #playbar {
+      position: absolute; left: 12px; right: 12px; bottom: 12px; z-index: 10;
+      display: flex; align-items: center; gap: 12px;
+      background: rgba(30, 30, 34, .88); color: #eee; padding: 8px 14px; border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,.4); font-size: 14px;
+    }
+    #playbar.disabled > * { opacity: .4; pointer-events: none; }
+    #playbar button.icon { width: 34px; height: 30px; padding: 0; font-size: 14px; flex: none; }
+    #pb-time { font-variant-numeric: tabular-nums; white-space: nowrap; min-width: 11ch; }
+    #pb-track { flex: 1; min-width: 80px; }
+    #pb-slider { width: 100%; margin: 0; accent-color: #3b82f6; cursor: pointer; display: block; }
+    #pb-coverage { position: relative; margin-top: 3px; }
+    #pb-coverage div { position: absolute; height: 3px; border-radius: 2px; }
+    #pb-span { color: #aaa; font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+    /* Cesium's credits, restyled to match. */
+    .cesium-viewer-bottom { left: 12px !important; right: auto !important; bottom: 62px !important; }
+    .cesium-widget-credits { font-family: system-ui, sans-serif; font-size: 11px; color: #ddd; text-shadow: 0 1px 2px #000; }
+    .cesium-widget-credits a { color: #ddd; }
+  </style>
+</head>
+<body>
+  <div id="viewer"></div>
+  <div id="panel">
+    <div class="panel-head">
+      <h2>Flight replay</h2>
+      <button id="panel-hide" title="Hide menu">– Hide</button>
+    </div>
+    <div id="view-block">
+      <label>
+        <input type="checkbox" id="depth-of-field" checked>
+        <div><strong>Depth of field</strong><span>Tilt-shift 'miniature village' look</span></div>
+      </label>
+      <label>
+        <input type="checkbox" id="place-labels">
+        <div><strong>Place labels</strong><span>Towns and villages near the flights</span></div>
+      </label>
+    </div>
+    <h1>Flights</h1>
+    <button id="add-files">Add IGC files…</button>
+    <input type="file" id="upload" accept=".igc,.IGC" multiple>
+    <div id="toggles">
+      <label><input type="checkbox" id="show-tracks" checked> Full tracks</label>
+      <label><input type="checkbox" id="show-trails" checked> Recent trails</label>
+    </div>
+    <ul id="flights"></ul>
+    <div id="notice"></div>
+    <div id="place-status"></div>
+    <div id="error"></div>
+  </div>
+
+  <button id="panel-show" title="Show menu">☰ Menu</button>
+
+  <div id="playbar" class="disabled">
+    <button id="pb-play" class="icon" title="Play / pause (Space)">▶</button>
+    <button id="auto-camera" class="toggle active" title="Pan and zoom to keep every pilot in view">Auto camera</button>
+    <select id="pb-speed" title="Playback speed">
+      <option value="1">1×</option>
+      <option value="10">10×</option>
+      <option value="30" selected>30×</option>
+      <option value="60">60×</option>
+      <option value="120">120×</option>
+      <option value="300">300×</option>
+    </select>
+    <span id="pb-time">--:--:-- UTC</span>
+    <div id="pb-track">
+      <input type="range" id="pb-slider" min="0" max="1" step="1" value="0">
+      <div id="pb-coverage"></div>
+    </div>
+    <span id="pb-span"></span>
+    <button id="pb-fullscreen" class="icon" title="Fullscreen">⛶</button>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/cesium@1.123.0/Build/Cesium/Cesium.js"></script>
+  <script>
+    const TRAIL_SECONDS = 300;
+    const VARIO_WINDOW_SECONDS = 10;
+    const TRACK_DECIMATION = 3;
+    const AUTO_CAMERA_MIN_RADIUS = 1000; // metres; how close auto camera zooms on one pilot
+    const AUTO_CAMERA_MARGIN = 1.4;
+    const AUTO_CAMERA_SMOOTHING_SECONDS = 0.8;
+    // Pitch blends from LOW (near-horizontal) at LOW_RADIUS to HIGH (near-vertical) at HIGH_RADIUS.
+    const AUTO_CAMERA_LOW_PITCH_DEG = -12;
+    const AUTO_CAMERA_HIGH_PITCH_DEG = -75;
+    const AUTO_CAMERA_LOW_RADIUS = 1500; // metres
+    const AUTO_CAMERA_HIGH_RADIUS = 30000; // metres
+    const AUTO_CAMERA_GROUND_CLEARANCE = 150; // metres
+    // Depth of field (tilt-shift): sharp band half-height and blur falloff as
+    // fractions of screen height, max blur tap spacing, and colour grade.
+    const TILT_SHIFT_SHARP_HALF_HEIGHT = 0.06;
+    const TILT_SHIFT_FALLOFF = 0.3;
+    const TILT_SHIFT_MAX_STEP_PX = 3.0;
+    const TILT_SHIFT_SATURATION = 1.4;
+    const TILT_SHIFT_CONTRAST = 1.12;
+    // Place labels: height above ground, and how far away each place type stays visible.
+    const PLACE_LABEL_HEIGHT = 250; // metres
+    const PLACE_MAX_DISTANCE = { city: 120000, town: 60000, village: 25000, hamlet: 10000 }; // metres
+    const PLACE_BBOX_PADDING_DEG = 0.09; // ~10 km
+    const PLACE_FONT = { city: '600 15px sans-serif', town: '600 14px sans-serif', village: '13px sans-serif', hamlet: '12px sans-serif' };
+    const PLACE_FADE_START = 0.8; // fraction of max distance where labels start fading out
+    const PLACE_LINE_MIN_OPACITY = 0.5; // the ground line only shows once the text is this readable
+    const PLACE_BLUR_FADE = [0.15, 0.35]; // tilt-shift blur amount over which labels fade out
+    const PLACE_UPDATE_MS = 100;
+    const PLACE_RETRY_DELAYS_MS = [10000, 30000]; // page-side retries after the server's own retries fail
+    // Default colours, cycled as flights are added.
+    const PALETTE = ['#ffd23f', '#ee4266', '#3bceac', '#540d6e', '#0ead69', '#f78c6b', '#118ab2', '#ffffff'];
+
+    let viewer;
+    let hasTerrain = false;
+    let flights = [];
+    let nextId = 0;
+    let followedId = null;
+    let showTracks = true;
+    let showTrails = true;
+    let showPlaces = false;
+    let placeRetryTimer = null;
+    let placeLoadGen = 0; // bumped to cancel in-flight loads and pending retries
+    let places = []; // { name, font, base, top, maxDistance, opacity, label, line }
+    // Place labels and lines live in plain primitive collections rather than
+    // entities (showing/hiding an entity polyline rebuilds its whole geometry
+    // batch, which stuttered playback). Only places currently visible are in
+    // the collections, since hidden items still cost GPU time every frame.
+    let placeLabels = null; // Cesium.LabelCollection
+    let placeLines = null; // Cesium.PolylineCollection
+    let placeLineMaterial = null;
+    let lastPlaceUpdateMs = 0;
+    const placeIds = new Set();
+
+    async function createViewer() {
+      const cfg = await (await fetch('/api/config')).json();
+      const common = {
+        geocoder: false,
+        homeButton: false,
+        sceneModePicker: false,
+        navigationHelpButton: false,
+        baseLayerPicker: false,
+        animation: false,
+        timeline: false,
+        fullscreenButton: false,
+        shouldAnimate: false,
+      };
+      if (cfg.cesium_ion_token) {
+        Cesium.Ion.defaultAccessToken = cfg.cesium_ion_token;
+        hasTerrain = true;
+        return new Cesium.Viewer('viewer', {
+          ...common,
+          terrainProvider: await Cesium.createWorldTerrainAsync(),
+        });
+      }
+      document.getElementById('notice').textContent =
+        'No CESIUM_ION_TOKEN set: showing flat map without terrain.';
+      return new Cesium.Viewer('viewer', {
+        ...common,
+        baseLayer: new Cesium.ImageryLayer(
+          new Cesium.OpenStreetMapImageryProvider({ url: 'https://tile.openstreetmap.org/' })),
+        terrainProvider: new Cesium.EllipsoidTerrainProvider(),
+      });
+    }
+
+    // IGC altitudes are usually above mean sea level, while Cesium terrain is
+    // ellipsoidal. Pin the first fix (on launch) to the terrain to align them.
+    async function altitudeOffset(lon, lat, alt) {
+      if (!hasTerrain) return 0;
+      const [sample] = await Cesium.sampleTerrainMostDetailed(
+        viewer.terrainProvider, [Cesium.Cartographic.fromDegrees(lon, lat)]);
+      return sample.height !== undefined ? sample.height - alt : 0;
+    }
+
+    async function addFlight(feature, fallbackName) {
+      const coords = feature.geometry.coordinates;
+      const p = feature.properties;
+      const times = p.times;
+      const name = p.pilot || fallbackName || 'Unknown pilot';
+      const cssColor = PALETTE[flights.length % PALETTE.length];
+      const color = Cesium.Color.fromCssColorString(cssColor);
+      const offset = await altitudeOffset(...coords[0]);
+
+      const start = Cesium.JulianDate.fromIso8601(p.start_time);
+      const stop = Cesium.JulianDate.addSeconds(start, times[times.length - 1], new Cesium.JulianDate());
+      const positions = coords.map(([lon, lat, alt]) => Cesium.Cartesian3.fromDegrees(lon, lat, alt + offset));
+
+      const sampled = new Cesium.SampledPositionProperty();
+      sampled.setInterpolationOptions({
+        interpolationDegree: 1,
+        interpolationAlgorithm: Cesium.LagrangePolynomialApproximation,
+      });
+      positions.forEach((pos, i) =>
+        sampled.addSample(Cesium.JulianDate.addSeconds(start, times[i], new Cesium.JulianDate()), pos));
+
+      const heightAt = (time) => {
+        const pos = sampled.getValue(time);
+        return pos ? Cesium.Cartographic.fromCartesian(pos).height - offset : undefined;
+      };
+
+      // Colour-bearing properties are kept so the colour can be changed later.
+      const trackMaterial = new Cesium.ColorMaterialProperty(color.withAlpha(0.6));
+      const trailMaterial = new Cesium.PolylineGlowMaterialProperty({ glowPower: 0.25, color });
+      const pointColor = new Cesium.ConstantProperty(color);
+
+      const track = viewer.entities.add({
+        show: showTracks,
+        polyline: {
+          positions: positions.filter((_, i) => i % TRACK_DECIMATION === 0),
+          width: 2,
+          material: trackMaterial,
+        },
+      });
+      const entities = [track];
+
+      const pilot = viewer.entities.add({
+        availability: new Cesium.TimeIntervalCollection([new Cesium.TimeInterval({ start, stop })]),
+        position: sampled,
+        point: {
+          pixelSize: 11, color: pointColor,
+          outlineColor: Cesium.Color.BLACK, outlineWidth: 2,
+          disableDepthTestDistance: Number.POSITIVE_INFINITY,
+        },
+        path: { show: showTrails, leadTime: 0, trailTime: TRAIL_SECONDS, width: 6, resolution: 1, material: trailMaterial },
+        label: {
+          text: new Cesium.CallbackProperty((time) => {
+            const h = heightAt(time);
+            if (h === undefined) return '';
+            const before = Cesium.JulianDate.addSeconds(time, -VARIO_WINDOW_SECONDS, new Cesium.JulianDate());
+            const h0 = heightAt(before);
+            const vario = h0 === undefined ? 0 : (h - h0) / VARIO_WINDOW_SECONDS;
+            return `${name}\n${Math.round(h)} m  ${vario >= 0 ? '+' : ''}${vario.toFixed(1)} m/s`;
+          }, false),
+          font: '14px sans-serif',
+          fillColor: Cesium.Color.WHITE, outlineColor: Cesium.Color.BLACK, outlineWidth: 3,
+          style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+          verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+          pixelOffset: new Cesium.Cartesian2(0, -12),
+          disableDepthTestDistance: Number.POSITIVE_INFINITY,
+        },
+        viewFrom: new Cesium.Cartesian3(0, -1500, 800),
+      });
+      entities.push(pilot);
+
+      const lons = coords.map(c => c[0]), lats = coords.map(c => c[1]);
+      const bounds = {
+        south: Math.min(...lats), north: Math.max(...lats), west: Math.min(...lons), east: Math.max(...lons),
+      };
+
+      const flight = {
+        id: nextId++, name, props: p, cssColor, start, stop, positions, pilot, track, entities, bounds,
+        setColor(css) {
+          const c = Cesium.Color.fromCssColorString(css);
+          this.cssColor = css;
+          trackMaterial.color = c.withAlpha(0.6);
+          trailMaterial.color = c;
+          pointColor.setValue(c);
+        },
+      };
+      flights.push(flight);
+      updateClock();
+      renderList();
+      return flight;
+    }
+
+    function removeFlight(id) {
+      const flight = flights.find(f => f.id === id);
+      if (!flight) return;
+      if (followedId === id) setFollowed(null);
+      flight.entities.forEach(e => viewer.entities.remove(e));
+      flights = flights.filter(f => f.id !== id);
+      if (!flights.length) clearPlaces();
+      updateClock();
+      renderList();
+    }
+
+    // Clock spans all loaded flights; flights play at their real (UTC) times.
+    // The playhead keeps its place as flights are added or removed, unless it
+    // falls outside the new span or this is the first flight loaded.
+    let clockInUse = false;
+    function updateClock() {
+      if (!flights.length) {
+        clockInUse = false;
+        return;
+      }
+      const clock = viewer.clock;
+      const start = flights.map(f => f.start).reduce((a, b) => Cesium.JulianDate.lessThan(a, b) ? a : b);
+      const stop = flights.map(f => f.stop).reduce((a, b) => Cesium.JulianDate.greaterThan(a, b) ? a : b);
+      const keepTime = clockInUse
+        && Cesium.JulianDate.lessThanOrEquals(start, clock.currentTime)
+        && Cesium.JulianDate.lessThanOrEquals(clock.currentTime, stop);
+      clockInUse = true;
+      clock.startTime = start.clone();
+      clock.stopTime = stop.clone();
+      if (!keepTime) clock.currentTime = start.clone();
+      clock.clockRange = Cesium.ClockRange.CLAMPED;
+    }
+
+    // Fly to the flights: with auto camera, to the pilots' current positions
+    // (pausing auto camera until the flight ends); otherwise to the whole tracks.
+    function flyToAll() {
+      let sphere, pitch;
+      if (autoCamera) {
+        const points = currentPilotPositions();
+        if (!points.length) return;
+        sphere = Cesium.BoundingSphere.fromPoints(points);
+        sphere.radius = Math.max(sphere.radius, AUTO_CAMERA_MIN_RADIUS);
+        pitch = autoCameraPitch(sphere.radius);
+        autoCamera.paused = true;
+        autoCamera.center = null;
+      } else {
+        const points = flights.flatMap(f => f.positions.filter((_, i) => i % 20 === 0));
+        if (!points.length) return;
+        sphere = Cesium.BoundingSphere.fromPoints(points);
+        pitch = Cesium.Math.toRadians(-35);
+      }
+      const resume = () => {
+        if (!autoCamera) return;
+        autoCamera.paused = false;
+        autoCamera.lastMs = performance.now();
+      };
+      viewer.camera.lookAtTransform(Cesium.Matrix4.IDENTITY); // release any auto-camera lookAt
+      viewer.camera.flyToBoundingSphere(sphere, {
+        offset: new Cesium.HeadingPitchRange(0, pitch, 0), duration: 2, complete: resume, cancel: resume,
+      });
+    }
+
+    function currentPilotPositions() {
+      return flights.map(f => f.pilot.position.getValue(viewer.clock.currentTime)).filter(Boolean);
+    }
+
+    function setFollowed(id) {
+      if (id !== null) setAutoCamera(false);
+      followedId = id;
+      const flight = flights.find(f => f.id === id);
+      viewer.trackedEntity = flight ? flight.pilot : undefined;
+      renderList();
+    }
+
+    // Auto camera: each frame, frame the current positions of all pilots,
+    // easing towards the target so the view pans and zooms smoothly. The view
+    // stays low and oblique when pilots are close together and tilts towards
+    // top-down as it pulls out to fit a wider spread. The user can still swing
+    // the heading round; pitch and zoom are automatic.
+    let autoCamera = null; // { center, range, pitch, lastMs } while active
+
+    // Pitch for a given framing radius: shallow up close, steep when far out.
+    function autoCameraPitch(radius) {
+      const t = Cesium.Math.clamp(
+        Math.log(radius / AUTO_CAMERA_LOW_RADIUS) / Math.log(AUTO_CAMERA_HIGH_RADIUS / AUTO_CAMERA_LOW_RADIUS), 0, 1);
+      const eased = t * t * (3 - 2 * t); // smoothstep
+      return Cesium.Math.toRadians(
+        AUTO_CAMERA_LOW_PITCH_DEG + (AUTO_CAMERA_HIGH_PITCH_DEG - AUTO_CAMERA_LOW_PITCH_DEG) * eased);
+    }
+
+    // Steepen the pitch if needed to keep the camera clear of the terrain
+    // beneath it (sampled at last frame's camera position, close enough).
+    function terrainSafePitch(center, pitch, range) {
+      const centerHeight = Cesium.Cartographic.fromCartesian(center).height;
+      const ground = viewer.scene.globe.getHeight(viewer.camera.positionCartographic) ?? 0;
+      const needed = (ground + AUTO_CAMERA_GROUND_CLEARANCE - centerHeight) / range; // sin(-pitch) required
+      if (needed <= Math.sin(-pitch)) return pitch;
+      return -Math.asin(Cesium.Math.clamp(needed, 0, 1));
+    }
+
+    // One-off fly-out to frame a single pilot's whole track. Auto camera and
+    // follow would immediately pull the view away again, so both are switched off.
+    function showEntireTrack(flight) {
+      setFollowed(null);
+      setAutoCamera(false);
+      const points = flight.positions.filter((_, i) => i % 20 === 0);
+      viewer.camera.flyToBoundingSphere(Cesium.BoundingSphere.fromPoints(points), {
+        offset: new Cesium.HeadingPitchRange(viewer.camera.heading, Cesium.Math.toRadians(-45), 0),
+        duration: 2,
+      });
+    }
+
+    function setAutoCamera(on) {
+      document.getElementById('auto-camera').classList.toggle('active', on);
+      if (on === !!autoCamera) return;
+      if (on) {
+        if (followedId !== null) setFollowed(null);
+        autoCamera = { center: null, range: null, pitch: null, lastMs: performance.now() };
+      } else {
+        autoCamera = null;
+        viewer.camera.lookAtTransform(Cesium.Matrix4.IDENTITY);
+      }
+    }
+
+    function updateAutoCamera() {
+      if (!autoCamera || autoCamera.paused) return;
+      const points = currentPilotPositions();
+      if (!points.length) return;
+
+      const sphere = Cesium.BoundingSphere.fromPoints(points);
+      const radius = Math.max(sphere.radius, AUTO_CAMERA_MIN_RADIUS);
+      const fov = Math.min(viewer.camera.frustum.fov, viewer.camera.frustum.fovy ?? viewer.camera.frustum.fov);
+      const targetRange = AUTO_CAMERA_MARGIN * radius / Math.sin(fov / 2);
+
+      const now = performance.now();
+      const alpha = 1 - Math.exp(-(now - autoCamera.lastMs) / 1000 / AUTO_CAMERA_SMOOTHING_SECONDS);
+      autoCamera.lastMs = now;
+      const targetPitch = autoCameraPitch(radius);
+      if (!autoCamera.center) {
+        autoCamera.center = sphere.center.clone();
+        autoCamera.range = Cesium.Cartesian3.distance(viewer.camera.positionWC, sphere.center);
+        autoCamera.pitch = viewer.camera.pitch;
+      } else {
+        Cesium.Cartesian3.lerp(autoCamera.center, sphere.center, alpha, autoCamera.center);
+        autoCamera.range += (targetRange - autoCamera.range) * alpha;
+        autoCamera.pitch += (targetPitch - autoCamera.pitch) * alpha;
+      }
+
+      const heading = viewer.camera.heading;
+      const pitch = terrainSafePitch(autoCamera.center, autoCamera.pitch, autoCamera.range);
+      viewer.camera.lookAt(autoCamera.center, new Cesium.HeadingPitchRange(heading, pitch, autoCamera.range));
+    }
+
+    function renderList() {
+      renderPlaybar();
+      const list = document.getElementById('flights');
+      if (!flights.length) {
+        list.innerHTML = '<li class="empty">No flights loaded yet. Add one or more IGC files.</li>';
+        return;
+      }
+      list.replaceChildren(...flights.map(f => {
+        const li = document.createElement('li');
+        li.className = 'flight';
+        const p = f.props;
+        li.innerHTML = `
+          <div class="flight-head">
+            <input type="color" title="Track colour">
+            <span class="flight-name"></span>
+            <button class="follow" title="Camera follows this pilot">Follow</button>
+            <button class="entire" title="Zoom out to show this pilot's whole track">Entire track</button>
+            <button class="remove" title="Remove flight">✕</button>
+          </div>
+          <div class="flight-meta"></div>`;
+        li.querySelector('.flight-name').textContent = f.name;
+        const meta = li.querySelector('.flight-meta');
+        if (p.glider) meta.textContent = p.glider;
+        else meta.remove();
+        const picker = li.querySelector('input[type=color]');
+        picker.value = f.cssColor;
+        picker.addEventListener('input', () => { f.setColor(picker.value); renderPlaybar(); });
+        const follow = li.querySelector('.follow');
+        follow.classList.toggle('active', followedId === f.id);
+        follow.addEventListener('click', () => setFollowed(followedId === f.id ? null : f.id));
+        li.querySelector('.entire').addEventListener('click', () => showEntireTrack(f));
+        li.querySelector('.remove').addEventListener('click', () => removeFlight(f.id));
+        return li;
+      }));
+    }
+
+    // Depth of field: a tilt-shift 'miniature' effect. A horizontal band through
+    // the pilots stays sharp, the image blurs progressively above and below it
+    // (separable Gaussian, two passes), and colours are boosted to look toy-like.
+    let tiltShift = null; // { stage, focusY }
+
+    const TILT_SHIFT_BLUR_GLSL = (horizontal) => `
+      uniform sampler2D colorTexture;
+      uniform float focusY;      // 0 = bottom, 1 = top of screen
+      in vec2 v_textureCoordinates;
+      void main() {
+        float d = abs(v_textureCoordinates.y - focusY);
+        float amount = smoothstep(${TILT_SHIFT_SHARP_HALF_HEIGHT.toFixed(3)},
+                                  ${(TILT_SHIFT_SHARP_HALF_HEIGHT + TILT_SHIFT_FALLOFF).toFixed(3)}, d);
+        vec2 dir = ${horizontal ? 'vec2(1.0, 0.0)' : 'vec2(0.0, 1.0)'} / czm_viewport.zw;
+        vec2 tapOffset = dir * amount * ${TILT_SHIFT_MAX_STEP_PX.toFixed(1)};
+        float weights[5] = float[](0.227, 0.195, 0.122, 0.054, 0.016);
+        vec4 sum = texture(colorTexture, v_textureCoordinates) * weights[0];
+        for (int i = 1; i < 5; i++) {
+          sum += texture(colorTexture, v_textureCoordinates + tapOffset * float(i)) * weights[i];
+          sum += texture(colorTexture, v_textureCoordinates - tapOffset * float(i)) * weights[i];
+        }
+        out_FragColor = sum;
+      }`;
+
+    const TILT_SHIFT_GRADE_GLSL = `
+      uniform sampler2D colorTexture;
+      in vec2 v_textureCoordinates;
+      void main() {
+        vec4 c = texture(colorTexture, v_textureCoordinates);
+        float grey = dot(c.rgb, vec3(0.299, 0.587, 0.114));
+        vec3 rgb = mix(vec3(grey), c.rgb, ${TILT_SHIFT_SATURATION.toFixed(2)});
+        rgb = (rgb - 0.5) * ${TILT_SHIFT_CONTRAST.toFixed(2)} + 0.5;
+        out_FragColor = vec4(clamp(rgb, 0.0, 1.0), c.a);
+      }`;
+
+    function createTiltShift() {
+      const state = { focusY: 0.5 };
+      const uniforms = { focusY: () => state.focusY };
+      state.stage = viewer.scene.postProcessStages.add(new Cesium.PostProcessStageComposite({
+        stages: [
+          new Cesium.PostProcessStage({ fragmentShader: TILT_SHIFT_BLUR_GLSL(true), uniforms }),
+          new Cesium.PostProcessStage({ fragmentShader: TILT_SHIFT_BLUR_GLSL(false), uniforms }),
+          new Cesium.PostProcessStage({ fragmentShader: TILT_SHIFT_GRADE_GLSL }),
+        ],
+      }));
+      state.stage.enabled = document.getElementById('depth-of-field').checked;
+      return state;
+    }
+
+    // Keep the sharp band on the pilots (their screen-space centre), eased.
+    function updateTiltShift() {
+      if (!tiltShift || !tiltShift.stage.enabled) return;
+      let target = 0.5;
+      const points = currentPilotPositions();
+      if (points.length) {
+        const centre = Cesium.BoundingSphere.fromPoints(points).center;
+        const px = viewer.scene.cartesianToCanvasCoordinates(centre);
+        if (px) target = Cesium.Math.clamp(1 - px.y / viewer.canvas.clientHeight, 0.15, 0.85);
+      }
+      tiltShift.focusY += (target - tiltShift.focusY) * 0.1;
+    }
+
+    // Place labels from OpenStreetMap (via /api/places): white names raised
+    // above the ground on a thin line, fading out with distance, with smaller
+    // places only shown closer in so the view stays uncluttered.
+    // Load place names for the loaded flights, but only while labels are on.
+    function requestPlaces() {
+      if (!showPlaces || !flights.length) return;
+      clearTimeout(placeRetryTimer);
+      loadPlaces(++placeLoadGen, 0);
+    }
+
+    function cancelPlaceLoading() {
+      clearTimeout(placeRetryTimer);
+      placeLoadGen++;
+      document.getElementById('place-status').textContent = '';
+    }
+
+    async function loadPlaces(gen, attempt) {
+      if (!flights.length) return;
+      const status = document.getElementById('place-status');
+      const b = {
+        south: Math.min(...flights.map(f => f.bounds.south)), north: Math.max(...flights.map(f => f.bounds.north)),
+        west: Math.min(...flights.map(f => f.bounds.west)), east: Math.max(...flights.map(f => f.bounds.east)),
+      };
+      const lonPad = PLACE_BBOX_PADDING_DEG / Math.cos(Cesium.Math.toRadians((b.south + b.north) / 2));
+      const query = new URLSearchParams({
+        south: (b.south - PLACE_BBOX_PADDING_DEG).toFixed(4), north: (b.north + PLACE_BBOX_PADDING_DEG).toFixed(4),
+        west: (b.west - lonPad).toFixed(4), east: (b.east + lonPad).toFixed(4),
+      });
+      let found;
+      try {
+        const res = await fetch(`/api/places?${query}`);
+        const body = await res.json();
+        if (!res.ok) throw new Error(body.detail ?? res.statusText);
+        found = body.places;
+      } catch (e) {
+        if (gen !== placeLoadGen) return; // cancelled or superseded
+        if (attempt < PLACE_RETRY_DELAYS_MS.length) {
+          status.textContent = 'Place labels: retrying…';
+          placeRetryTimer = setTimeout(() => loadPlaces(gen, attempt + 1), PLACE_RETRY_DELAYS_MS[attempt]);
+        } else {
+          status.textContent = `Place labels unavailable: ${e.message}`;
+        }
+        return;
+      }
+      if (gen !== placeLoadGen) return;
+      status.textContent = '';
+
+      const fresh = found.filter(pl => !placeIds.has(pl.id));
+      if (!fresh.length) return;
+      const cartos = fresh.map(pl => Cesium.Cartographic.fromDegrees(pl.lon, pl.lat));
+      if (hasTerrain) await Cesium.sampleTerrainMostDetailed(viewer.terrainProvider, cartos);
+      if (gen !== placeLoadGen) return;
+      fresh.forEach(pl => placeIds.add(pl.id));
+
+      fresh.forEach((pl, i) => {
+        const ground = cartos[i].height ?? 0;
+        const base = Cesium.Cartesian3.fromDegrees(pl.lon, pl.lat, ground);
+        const top = Cesium.Cartesian3.fromDegrees(pl.lon, pl.lat, ground + PLACE_LABEL_HEIGHT);
+        // Labels and lines are created on demand by applyPlaceOpacity().
+        places.push({
+          name: pl.name, font: PLACE_FONT[pl.type] ?? PLACE_FONT.hamlet, base, top,
+          maxDistance: PLACE_MAX_DISTANCE[pl.type] ?? PLACE_MAX_DISTANCE.hamlet,
+          opacity: 0, label: null, line: null,
+        });
+      });
+      lastPlaceUpdateMs = 0; // show the new places straight away
+    }
+
+    const smoothstep = (a, b, x) => {
+      const t = Cesium.Math.clamp((x - a) / (b - a), 0, 1);
+      return t * t * (3 - 2 * t);
+    };
+
+    // Per-place opacity = distance fade x tilt-shift blur fade (0 if off-screen).
+    // The text alpha follows the opacity, and the ground line only appears when
+    // the text is readable, so there are never bare stalks.
+    function updatePlaceVisibility() {
+      if (!showPlaces || !places.length) return;
+      const now = performance.now();
+      if (now - lastPlaceUpdateMs < PLACE_UPDATE_MS) return;
+      lastPlaceUpdateMs = now;
+
+      const camPos = viewer.camera.positionWC;
+      const height = viewer.canvas.clientHeight;
+      const width = viewer.canvas.clientWidth;
+      const blurOn = tiltShift && tiltShift.stage.enabled;
+      const screen = new Cesium.Cartesian2();
+      for (const pl of places) {
+        const distance = Cesium.Cartesian3.distance(camPos, pl.top);
+        let o = 1 - smoothstep(pl.maxDistance * PLACE_FADE_START, pl.maxDistance, distance);
+        if (o > 0) {
+          const px = viewer.scene.cartesianToCanvasCoordinates(pl.top, screen);
+          if (!px || px.x < 0 || px.x > width || px.y < 0 || px.y > height) {
+            o = 0;
+          } else if (blurOn) {
+            const y = 1 - px.y / height; // same convention as the shader's focusY
+            const blur = smoothstep(TILT_SHIFT_SHARP_HALF_HEIGHT, TILT_SHIFT_SHARP_HALF_HEIGHT + TILT_SHIFT_FALLOFF,
+              Math.abs(y - tiltShift.focusY));
+            o *= 1 - smoothstep(PLACE_BLUR_FADE[0], PLACE_BLUR_FADE[1], blur);
+          }
+        }
+        applyPlaceOpacity(pl, o);
+      }
+    }
+
+    function applyPlaceOpacity(pl, o) {
+      if (o < 0.02) o = 0;
+      const changed = Math.abs(o - pl.opacity) > 0.05 || (o === 0) !== (pl.opacity === 0);
+      if (changed) {
+        pl.opacity = o;
+        if (o === 0) {
+          if (pl.label) placeLabels.remove(pl.label);
+          pl.label = null;
+        } else if (!pl.label) {
+          pl.label = placeLabels.add({
+            position: pl.top,
+            text: pl.name,
+            font: pl.font,
+            fillColor: Cesium.Color.WHITE.withAlpha(o),
+            outlineColor: Cesium.Color.BLACK.withAlpha(0.75 * o),
+            outlineWidth: 3,
+            style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+            verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+            pixelOffset: new Cesium.Cartesian2(0, -3),
+          });
+        } else {
+          pl.label.fillColor = Cesium.Color.WHITE.withAlpha(o);
+          pl.label.outlineColor = Cesium.Color.BLACK.withAlpha(0.75 * o);
+        }
+      }
+      const lineShown = o >= PLACE_LINE_MIN_OPACITY;
+      if (lineShown && !pl.line) {
+        pl.line = placeLines.add({ positions: [pl.base, pl.top], width: 1, material: placeLineMaterial });
+      } else if (!lineShown && pl.line) {
+        placeLines.remove(pl.line);
+        pl.line = null;
+      }
+    }
+
+    function clearPlaces() {
+      cancelPlaceLoading();
+      placeLabels.removeAll();
+      placeLines.removeAll();
+      places = [];
+      placeIds.clear();
+    }
+
+    // Playback bar: replaces Cesium's animation dial and timeline.
+    const playbar = {
+      el: document.getElementById('playbar'),
+      play: document.getElementById('pb-play'),
+      speed: document.getElementById('pb-speed'),
+      time: document.getElementById('pb-time'),
+      slider: document.getElementById('pb-slider'),
+      coverage: document.getElementById('pb-coverage'),
+      span: document.getElementById('pb-span'),
+      scrubbing: false,
+    };
+
+    function formatClockTime(julian, withSeconds = true) {
+      const g = Cesium.JulianDate.toGregorianDate(julian);
+      const pad = (n) => String(n).padStart(2, '0');
+      return `${pad(g.hour)}:${pad(g.minute)}` + (withSeconds ? `:${pad(g.second)}` : '');
+    }
+
+    function clockSpanSeconds() {
+      return Cesium.JulianDate.secondsDifference(viewer.clock.stopTime, viewer.clock.startTime);
+    }
+
+    // Static parts: enabled state, slider range, span label and per-flight coverage strips.
+    function renderPlaybar() {
+      playbar.el.classList.toggle('disabled', !flights.length);
+      playbar.el.querySelectorAll('button, select, input').forEach(c => { c.disabled = !flights.length; });
+      playbar.coverage.replaceChildren();
+      if (!flights.length) {
+        playbar.span.textContent = '';
+        playbar.time.textContent = '--:--:-- UTC';
+        return;
+      }
+      const clock = viewer.clock;
+      const span = clockSpanSeconds();
+      playbar.slider.max = Math.max(1, Math.round(span));
+      playbar.span.textContent = `${formatClockTime(clock.startTime, false)}–${formatClockTime(clock.stopTime, false)}`;
+      flights.forEach((f, i) => {
+        const from = Cesium.JulianDate.secondsDifference(f.start, clock.startTime) / span;
+        const to = Cesium.JulianDate.secondsDifference(f.stop, clock.startTime) / span;
+        const strip = document.createElement('div');
+        Object.assign(strip.style, {
+          left: `${from * 100}%`, width: `${(to - from) * 100}%`, top: `${i * 4}px`, background: f.cssColor,
+        });
+        strip.title = f.name;
+        playbar.coverage.appendChild(strip);
+      });
+      playbar.coverage.style.height = `${flights.length * 4}px`;
+      updatePlaybar();
+    }
+
+    // Dynamic parts, run every frame: slider position, time readout, play icon.
+    function updatePlaybar() {
+      if (!flights.length) return;
+      const clock = viewer.clock;
+      if (clock.shouldAnimate && Cesium.JulianDate.greaterThanOrEquals(clock.currentTime, clock.stopTime)) {
+        clock.shouldAnimate = false;
+      }
+      const secs = Math.round(Cesium.JulianDate.secondsDifference(clock.currentTime, clock.startTime));
+      if (!playbar.scrubbing && Number(playbar.slider.value) !== secs) playbar.slider.value = secs;
+      const text = `${formatClockTime(clock.currentTime)} UTC`;
+      if (playbar.time.textContent !== text) playbar.time.textContent = text;
+      const icon = clock.shouldAnimate ? '❚❚' : '▶';
+      if (playbar.play.textContent !== icon) playbar.play.textContent = icon;
+    }
+
+    function togglePlay() {
+      if (!flights.length) return;
+      const clock = viewer.clock;
+      if (!clock.shouldAnimate && Cesium.JulianDate.greaterThanOrEquals(clock.currentTime, clock.stopTime)) {
+        clock.currentTime = clock.startTime.clone();
+      }
+      clock.shouldAnimate = !clock.shouldAnimate;
+      updatePlaybar();
+    }
+
+    playbar.play.addEventListener('click', togglePlay);
+    playbar.speed.addEventListener('change', () => { viewer.clock.multiplier = Number(playbar.speed.value); });
+    playbar.slider.addEventListener('pointerdown', () => { playbar.scrubbing = true; });
+    window.addEventListener('pointerup', () => { playbar.scrubbing = false; });
+    playbar.slider.addEventListener('input', () => {
+      viewer.clock.currentTime = Cesium.JulianDate.addSeconds(
+        viewer.clock.startTime, Number(playbar.slider.value), new Cesium.JulianDate());
+      updatePlaybar();
+    });
+    document.getElementById('pb-fullscreen').addEventListener('click', () => {
+      if (document.fullscreenElement) document.exitFullscreen();
+      else document.documentElement.requestFullscreen();
+    });
+    document.addEventListener('keydown', (ev) => {
+      if (ev.code !== 'Space' || ['INPUT', 'SELECT', 'TEXTAREA', 'BUTTON'].includes(ev.target.tagName)) return;
+      ev.preventDefault();
+      togglePlay();
+    });
+
+    async function fetchFlight(promise, fallbackName) {
+      const res = await promise;
+      const body = await res.json();
+      if (!res.ok) throw new Error(`${fallbackName ?? 'Flight'}: ${body.detail ?? res.statusText}`);
+      return addFlight(body, fallbackName);
+    }
+
+    document.getElementById('show-tracks').addEventListener('change', (ev) => {
+      showTracks = ev.target.checked;
+      flights.forEach(f => { f.track.show = showTracks; });
+    });
+
+    document.getElementById('auto-camera').addEventListener('click', () => setAutoCamera(!autoCamera));
+    document.getElementById('place-labels').addEventListener('change', (ev) => {
+      showPlaces = ev.target.checked;
+      if (showPlaces) {
+        lastPlaceUpdateMs = 0; // let the visibility controller re-show them
+        requestPlaces();
+      } else {
+        cancelPlaceLoading();
+        places.forEach(pl => applyPlaceOpacity(pl, 0));
+      }
+    });
+    document.getElementById('depth-of-field').addEventListener('change', (ev) => { tiltShift.stage.enabled = ev.target.checked; });
+
+    document.getElementById('show-trails').addEventListener('change', (ev) => {
+      showTrails = ev.target.checked;
+      flights.forEach(f => { f.pilot.path.show = showTrails; });
+    });
+
+    // Minimise / restore the main menu (remembered per browser where possible).
+    function setPanelHidden(hidden) {
+      document.getElementById('panel').classList.toggle('hidden', hidden);
+      try { localStorage.setItem('panelHidden', hidden ? '1' : '0'); } catch { /* storage unavailable */ }
+    }
+    document.getElementById('panel-hide').addEventListener('click', () => setPanelHidden(true));
+    document.getElementById('panel-show').addEventListener('click', () => setPanelHidden(false));
+    try { if (localStorage.getItem('panelHidden') === '1') setPanelHidden(true); } catch { /* storage unavailable */ }
+
+    document.getElementById('add-files').addEventListener('click', () => document.getElementById('upload').click());
+
+    document.getElementById('upload').addEventListener('change', async (ev) => {
+      const err = document.getElementById('error');
+      err.textContent = '';
+      const errors = [];
+      const wasEmpty = !flights.length;
+      for (const file of ev.target.files) {
+        const form = new FormData();
+        form.append('file', file);
+        try {
+          await fetchFlight(fetch('/api/flights/upload', { method: 'POST', body: form }), file.name);
+        } catch (e) {
+          errors.push(e.message);
+        }
+      }
+      err.textContent = errors.join('\n');
+      ev.target.value = '';
+      // Auto camera already keeps pilots framed; only fly in for the first load.
+      if (!autoCamera || wasEmpty) flyToAll();
+      requestPlaces();
+    });
+
+    (async () => {
+      viewer = await createViewer();
+      viewer.clock.multiplier = Number(playbar.speed.value);
+      viewer.clock.onTick.addEventListener(updateAutoCamera);
+      viewer.clock.onTick.addEventListener(updatePlaybar);
+      tiltShift = createTiltShift();
+      viewer.clock.onTick.addEventListener(updateTiltShift);
+      placeLabels = viewer.scene.primitives.add(new Cesium.LabelCollection());
+      placeLines = viewer.scene.primitives.add(new Cesium.PolylineCollection());
+      placeLineMaterial = Cesium.Material.fromType('Color', { color: Cesium.Color.WHITE.withAlpha(0.5) });
+      viewer.clock.onTick.addEventListener(updatePlaceVisibility);
+      setAutoCamera(true);
+      renderList();
+    })();
+  </script>
+</body>
+</html>

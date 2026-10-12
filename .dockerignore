@@ -1,0 +1,12 @@
+.venv/
+.pytest_cache/
+__pycache__/
+**/__pycache__/
+tests/
+.env
+.env.*
+.idea/
+.vscode/
+.git/
+*.igc
+*.IGC
