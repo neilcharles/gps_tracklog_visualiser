@@ -11,6 +11,8 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
+from backend.tracks import track_feature
+
 # B record fixed fields occupy bytes 1-35; extensions start at byte 36.
 _B_FIXED_LEN = 35
 _DTE_RE = re.compile(r"(\d{6})")
@@ -59,28 +61,8 @@ class Flight:
         return self.headers.get("GTY")
 
     def to_geojson(self) -> dict:
-        coords = [[f.lon, f.lat, _altitude(f)] for f in self.fixes]
-        props: dict = {
-            "pilot": self.pilot,
-            "glider": self.glider,
-            "date": self.date.isoformat() if self.date else None,
-            "num_fixes": len(self.fixes),
-        }
-        if self.fixes:
-            start, end = self.fixes[0].time, self.fixes[-1].time
-            props |= {
-                "start_time": start.isoformat(),
-                "end_time": end.isoformat(),
-                "duration_s": int((end - start).total_seconds()),
-                "max_alt": max(c[2] for c in coords),
-                # Seconds since the first fix, one per coordinate.
-                "times": [int((f.time - start).total_seconds()) for f in self.fixes],
-            }
-        return {
-            "type": "Feature",
-            "geometry": {"type": "LineString", "coordinates": coords},
-            "properties": props,
-        }
+        points = [(f.time, f.lon, f.lat, _altitude(f)) for f in self.fixes]
+        return track_feature(points, self.pilot, self.glider, self.date)
 
 
 def _altitude(fix: Fix) -> int:

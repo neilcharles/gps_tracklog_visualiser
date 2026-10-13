@@ -41,8 +41,7 @@
     }
     #panel h1 { font-size: 16px; margin: 0 0 8px; }
     #panel.hidden { display: none; }
-    .panel-head { display: flex; align-items: center; justify-content: space-between; margin: -4px 0 8px; }
-    .panel-head h2 { font-size: 15px; margin: 0; }
+    .panel-head { display: flex; align-items: center; justify-content: flex-end; margin: -4px 0 8px; }
     #panel .panel-head button { padding: 2px 9px; font-size: 13px; }
     #panel-show {
       position: absolute; top: 12px; left: 12px; z-index: 10; display: none;
@@ -63,15 +62,20 @@
     #view-block strong { display: block; }
     #view-block span { color: #aaa; font-size: 12px; }
     .empty { color: #aaa; font-size: 13px; padding: 4px 0; }
-    #toggles { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-bottom: 8px; }
-    #toggles label { cursor: pointer; }
     #flights { list-style: none; margin: 0; padding: 0; }
     .flight { border-top: 1px solid #444; padding: 8px 0; }
     .flight-head { display: flex; align-items: center; gap: 8px; }
     .flight-head input[type=color] {
       width: 26px; height: 26px; padding: 0; border: none; background: none; cursor: pointer; flex: none;
     }
-    .flight-name { flex: 1; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    /* Editable in place; looks like plain bold text until hovered or focused. */
+    .flight-name {
+      flex: 1; min-width: 0; font: inherit; font-weight: 600; color: inherit; background: transparent;
+      border: none; border-bottom: 1px solid transparent; padding: 1px 0; margin: 0;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: text;
+    }
+    .flight-name:hover { border-bottom-color: #666; }
+    .flight-name:focus { outline: none; border-bottom-color: #aaa; }
     .flight button { font-size: 12px; padding: 2px 6px; flex: none; }
     .flight button.active { background: #ffd23f; }
     /* Second row: glider on the left, camera buttons on the right. */
@@ -179,26 +183,29 @@
   <div id="flags"></div>
   <div id="panel">
     <div class="panel-head">
-      <h2>Flight replay</h2>
       <button id="panel-hide" title="Hide menu">– Hide</button>
     </div>
     <div id="view-block">
       <label>
         <input type="checkbox" id="depth-of-field" checked>
-        <div><strong>Depth of field</strong><span>Tilt-shift 'miniature village' look</span></div>
+        <div><strong>Depth of field</strong><span>'Model village' tilt-shift effect</span></div>
       </label>
       <label>
         <input type="checkbox" id="place-labels">
-        <div><strong>Place labels</strong><span>Towns and villages near the flights</span></div>
+        <div><strong>Place labels</strong><span>Label towns and villages</span></div>
+      </label>
+      <label>
+        <input type="checkbox" id="show-tracks" checked>
+        <div><strong>Full tracks</strong><span>Show entire tracks</span></div>
+      </label>
+      <label>
+        <input type="checkbox" id="show-trails" checked>
+        <div><strong>Recent trails</strong><span>Highlight the last 5 minutes of tracks</span></div>
       </label>
     </div>
-    <h1>Flights</h1>
-    <button id="add-files">Add IGC files…</button>
-    <input type="file" id="upload" accept=".igc,.IGC" multiple>
-    <div id="toggles">
-      <label><input type="checkbox" id="show-tracks" checked> Full tracks</label>
-      <label><input type="checkbox" id="show-trails" checked> Recent trails</label>
-    </div>
+    <h1>Tracklogs</h1>
+    <button id="add-files">Add tracklogs…</button>
+    <input type="file" id="upload" accept=".igc,.IGC,.gpx,.GPX" multiple>
     <ul id="flights"></ul>
     <div id="notice"></div>
     <div id="place-status"></div>
@@ -213,8 +220,8 @@
       <div class="fc-item"><span class="fc-val" id="fc-agl">–</span><span class="fc-cap">Above ground</span></div>
       <div class="fc-item"><span class="fc-val" id="fc-climb">–</span><span class="fc-cap">Climb</span></div>
       <div class="fc-item"><span class="fc-val" id="fc-speed">–</span><span class="fc-cap">Ground speed</span></div>
-      <div class="fc-item"><span class="fc-val" id="fc-dist">–</span><span class="fc-cap">From takeoff</span></div>
-      <div class="fc-item"><span class="fc-val" id="fc-time">–</span><span class="fc-cap">Flight time</span></div>
+      <div class="fc-item"><span class="fc-val" id="fc-dist">–</span><span class="fc-cap">From start</span></div>
+      <div class="fc-item"><span class="fc-val" id="fc-time">–</span><span class="fc-cap">Elapsed time</span></div>
     </div>
     <canvas id="fc-static"></canvas>
     <canvas id="fc-cursor"></canvas>
@@ -244,6 +251,7 @@
   <script>
     const TRAIL_SECONDS = 300;
     const VARIO_WINDOW_SECONDS = 10;
+    const TERRAIN_SAMPLE_LEVEL = 13; // used only if the terrain provider lacks availability info
     const TRACK_DECIMATION = 3;
     const AUTO_CAMERA_MIN_RADIUS = 1000; // metres; how close auto camera zooms on one pilot
     const AUTO_CAMERA_MARGIN = 1.4;
@@ -282,6 +290,13 @@
     // Followed-pilot chart.
     const CHART_TERRAIN_STEP_S = 10; // terrain profile sample spacing
     const CHART_TERRAIN_MAX_POINTS = 2000;
+    // Ground-only tracks (walks, runs, rides) are clamped to the terrain; see isGroundOnly.
+    const GROUND_SMOOTH_S = 60; // rolling-median window for height above ground, rejects GPS glitches
+    const GROUND_AIRBORNE_AGL_M = 50; // smoothed height above ground beyond GPS and terrain-model error
+    const GROUND_MIN_FLIGHT_S = 60; // ...held this long counts as flight if it also
+    const GROUND_CLEAR_AGL_M = 150; // ...gets this high
+    const GROUND_FLIGHT_SPEED_KMH = 15; // ...or moves this fast (median)
+    const GROUND_LIFT_M = 1; // clamped tracks sit this far above the terrain so lines don't flicker into it
     const CHART_SLIDER_THUMB_INSET = 8; // px; the range thumb's centre travels this far inside the track
     const CHART_SPEED_WINDOW_S = 5;
     const CHART_READOUT_MS = 100;
@@ -322,6 +337,37 @@
         fullscreenButton: false,
         shouldAnimate: false,
       };
+      // MapTiler is preferred: its free plan suits a public site better than ion's.
+      if (cfg.maptiler_key) {
+        const key = encodeURIComponent(cfg.maptiler_key);
+        hasTerrain = true;
+        // CesiumJS shows the "Cesium ion" logo by default; nothing here comes
+        // from ion, so drop it (must be set before the viewer is created).
+        Cesium.CreditDisplay.cesiumCredit = undefined;
+        const viewer = new Cesium.Viewer('viewer', {
+          ...common,
+          terrainProvider: await Cesium.CesiumTerrainProvider.fromUrl(
+            `https://api.maptiler.com/tiles/terrain-quantized-mesh-v2/?key=${key}`, { requestVertexNormals: true }),
+          baseLayer: new Cesium.ImageryLayer(new Cesium.UrlTemplateImageryProvider({
+            url: `https://api.maptiler.com/maps/satellite-v4/{z}/{x}/{y}.jpg?key=${key}`,
+            minimumLevel: 0, maximumLevel: 20, tileWidth: 512, tileHeight: 512,
+          })),
+        });
+        // Attribution required by MapTiler's terms (logo + data credits).
+        viewer.creditDisplay.addStaticCredit(new Cesium.Credit(
+          '<a href="https://www.maptiler.com/" target="_blank" rel="noopener">'
+          + '<img src="https://api.maptiler.com/resources/logo.svg" alt="MapTiler" style="height:18px;vertical-align:middle"></a> '
+          + '<a href="https://www.maptiler.com/copyright/" target="_blank" rel="noopener">&copy; MapTiler</a> '
+          + '<a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">&copy; OpenStreetMap contributors</a>',
+          true));
+        // Fewer tile requests to stay within MapTiler's free quota (server-side
+        // caching isn't allowed by its terms): accept 4 px of error before refining
+        // (default 2, about one zoom level coarser) and keep more tiles in memory so
+        // panning back or replaying doesn't refetch them.
+        viewer.scene.globe.maximumScreenSpaceError = 4;
+        viewer.scene.globe.tileCacheSize = 500;
+        return viewer;
+      }
       if (cfg.cesium_ion_token) {
         Cesium.Ion.defaultAccessToken = cfg.cesium_ion_token;
         hasTerrain = true;
@@ -340,23 +386,36 @@
       });
     }
 
-    // IGC altitudes are usually above mean sea level, while Cesium terrain is
-    // ellipsoidal. Pin the first fix (on launch) to the terrain to align them.
+    // Fill in terrain heights for the cartographics (in place) and return them.
+    // sampleTerrainMostDetailed needs the provider to publish tile availability;
+    // otherwise sample at a fixed level fine enough for paragliding.
+    function sampleGround(cartos) {
+      const provider = viewer.terrainProvider;
+      return provider.availability
+        ? Cesium.sampleTerrainMostDetailed(provider, cartos)
+        : Cesium.sampleTerrain(provider, TERRAIN_SAMPLE_LEVEL, cartos);
+    }
+
+    // Tracklog (IGC/GPX) altitudes are usually above mean sea level, while
+    // Cesium terrain is ellipsoidal. Pin the first fix (on launch) to the
+    // terrain to align them.
     async function altitudeOffset(lon, lat, alt) {
       if (!hasTerrain) return 0;
-      const [sample] = await Cesium.sampleTerrainMostDetailed(
-        viewer.terrainProvider, [Cesium.Cartographic.fromDegrees(lon, lat)]);
+      const [sample] = await sampleGround([Cesium.Cartographic.fromDegrees(lon, lat)]);
       return sample.height !== undefined ? sample.height - alt : 0;
     }
 
     async function addFlight(feature, fallbackName) {
-      const coords = feature.geometry.coordinates;
+      let coords = feature.geometry.coordinates;
       const p = feature.properties;
       const times = p.times;
       const name = p.pilot || fallbackName || 'Unknown pilot';
       const cssColor = PALETTE[flights.length % PALETTE.length];
       const color = Cesium.Color.fromCssColorString(cssColor);
       const offset = await altitudeOffset(...coords[0]);
+      const terrainProfile = await sampleTerrainProfile(coords, times, offset);
+      const onGround = terrainProfile ? isGroundOnly(terrainProfile, coords) : false;
+      if (onGround) coords = await clampToGround(coords, offset);
 
       const start = Cesium.JulianDate.fromIso8601(p.start_time);
       const stop = Cesium.JulianDate.addSeconds(start, times[times.length - 1], new Cesium.JulianDate());
@@ -414,13 +473,18 @@
         id: nextId++, name, props: p, cssColor, start, stop, positions, pilot, track, entities, bounds,
         flag, flagAlt: flag.querySelector('.flag-alt'), shownAlt: null,
         times, alts: coords.map(c => c[2]), coords, offset, sampled, altitudeAt: heightAt,
-        terrainProfile: undefined, terrainPromise: null,
+        terrainProfile, onGround,
         setColor(css) {
           const c = Cesium.Color.fromCssColorString(css);
           this.cssColor = css;
           trackMaterial.color = c.withAlpha(0.6);
           trailMaterial.color = c;
           setFlagColor(flag, css);
+        },
+        setName(name) {
+          this.name = name;
+          flag.querySelector('.flag-name').textContent = name;
+          renderPlaybar(); // coverage strip tooltips
         },
       };
       flights.push(flight);
@@ -708,7 +772,7 @@
       renderPlaybar();
       const list = document.getElementById('flights');
       if (!flights.length) {
-        list.innerHTML = '<li class="empty">No flights loaded yet. Add one or more IGC files.</li>';
+        list.innerHTML = '<li class="empty">No tracklogs loaded yet. Add one or more IGC or GPX files.</li>';
         return;
       }
       list.replaceChildren(...flights.map(f => {
@@ -718,7 +782,7 @@
         li.innerHTML = `
           <div class="flight-head">
             <input type="color" title="Track colour">
-            <span class="flight-name"></span>
+            <input class="flight-name" type="text" spellcheck="false" maxlength="60" title="Click to rename">
             <button class="remove" title="Remove flight">✕</button>
           </div>
           <div class="flight-sub">
@@ -726,7 +790,17 @@
             <button class="follow" title="Camera follows this pilot">Follow</button>
             <button class="entire" title="Zoom out to show this pilot's whole track">Entire track</button>
           </div>`;
-        li.querySelector('.flight-name').textContent = f.name;
+        const nameInput = li.querySelector('.flight-name');
+        nameInput.value = f.name;
+        nameInput.addEventListener('keydown', (ev) => {
+          if (ev.key === 'Enter') nameInput.blur();
+          if (ev.key === 'Escape') { nameInput.value = f.name; nameInput.blur(); }
+        });
+        nameInput.addEventListener('change', () => {
+          const name = nameInput.value.trim();
+          if (name) f.setName(name);
+          nameInput.value = f.name; // shows the trimmed name, or reverts an empty one
+        });
         li.querySelector('.flight-meta').textContent = p.glider ?? '';
         const picker = li.querySelector('input[type=color]');
         picker.value = f.cssColor;
@@ -856,7 +930,7 @@
       const fresh = found.filter(pl => !placeIds.has(pl.id));
       if (!fresh.length) return;
       const cartos = fresh.map(pl => Cesium.Cartographic.fromDegrees(pl.lon, pl.lat));
-      if (hasTerrain) await Cesium.sampleTerrainMostDetailed(viewer.terrainProvider, cartos);
+      if (hasTerrain) await sampleGround(cartos);
       if (gen !== placeLoadGen) return;
       fresh.forEach(pl => placeIds.add(pl.id));
 
@@ -976,9 +1050,6 @@
       layoutChart();
       drawChartStatic();
       updateChart(true);
-      ensureTerrainProfile(flight).then(() => {
-        if (chart.flight === flight) { drawChartStatic(); updateChart(true); }
-      });
     }
 
     function closeChart() {
@@ -987,32 +1058,81 @@
       document.body.classList.remove('chart-open');
     }
 
-    // Ground height under the track (same datum as the IGC altitude), sampled
-    // once per flight the first time it is charted. Null without terrain.
-    function ensureTerrainProfile(flight) {
-      if (!hasTerrain) { flight.terrainProfile = null; return Promise.resolve(null); }
-      if (flight.terrainPromise) return flight.terrainPromise;
-      flight.terrainPromise = (async () => {
-        const idx = [];
-        let lastT = -Infinity;
-        for (let i = 0; i < flight.times.length; i++) {
-          if (flight.times[i] - lastT >= CHART_TERRAIN_STEP_S) { idx.push(i); lastT = flight.times[i]; }
+    // Ground height under the track (same datum as the track altitude), sampled
+    // every CHART_TERRAIN_STEP_S when the track is loaded. Used to tell flights
+    // from ground activities and for the chart. Null without terrain.
+    async function sampleTerrainProfile(coords, times, offset) {
+      if (!hasTerrain) return null;
+      const idx = [];
+      let lastT = -Infinity;
+      for (let i = 0; i < times.length; i++) {
+        if (times[i] - lastT >= CHART_TERRAIN_STEP_S) { idx.push(i); lastT = times[i]; }
+      }
+      const stride = Math.ceil(idx.length / CHART_TERRAIN_MAX_POINTS);
+      const picked = idx.filter((_, k) => k % stride === 0);
+      const cartos = picked.map(i => Cesium.Cartographic.fromDegrees(coords[i][0], coords[i][1]));
+      try {
+        await sampleGround(cartos);
+      } catch {
+        return null;
+      }
+      return { idx: picked, t: picked.map(i => times[i]), ground: cartos.map(c => (c.height ?? 0) - offset) };
+    }
+
+    // True if the track never really leaves the ground. Height above ground is
+    // smoothed with a rolling median (so one-off GPS spikes vanish), then any
+    // stretch more than GROUND_AIRBORNE_AGL_M up for GROUND_MIN_FLIGHT_S counts
+    // as flight if it also climbs past GROUND_CLEAR_AGL_M or moves at flying
+    // speed. Those last two reject walkers along ridges where the terrain model
+    // is too low: they are slow and the error is rarely that large. A long hike
+    // with one short flight is still a flight.
+    function isGroundOnly(profile, coords) {
+      const { idx, t, ground } = profile;
+      const n = t.length;
+      if (n < 2) return false;
+      const agl = idx.map((i, k) => coords[i][2] - ground[k]);
+      const median = (xs) => {
+        const v = [...xs].sort((a, b) => a - b), m = v.length >> 1;
+        return v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2;
+      };
+      const smooth = [];
+      for (let k = 0, lo = 0, hi = 0; k < n; k++) {
+        while (t[lo] < t[k] - GROUND_SMOOTH_S / 2) lo++;
+        while (hi + 1 < n && t[hi + 1] <= t[k] + GROUND_SMOOTH_S / 2) hi++;
+        smooth.push(median(agl.slice(lo, hi + 1)));
+      }
+      for (let a = 0; a < n; a++) {
+        if (smooth[a] <= GROUND_AIRBORNE_AGL_M) continue;
+        let b = a;
+        while (b + 1 < n && smooth[b + 1] > GROUND_AIRBORNE_AGL_M) b++;
+        if (t[b] - t[a] >= GROUND_MIN_FLIGHT_S) {
+          const peak = Math.max(...smooth.slice(a, b + 1));
+          const speeds = [];
+          for (let k = a; k < b; k++) {
+            speeds.push(groundDistanceM(coords[idx[k]], coords[idx[k + 1]]) / (t[k + 1] - t[k]) * 3.6);
+          }
+          if (peak >= GROUND_CLEAR_AGL_M || median(speeds) >= GROUND_FLIGHT_SPEED_KMH) return false;
         }
-        const stride = Math.ceil(idx.length / CHART_TERRAIN_MAX_POINTS);
-        const picked = idx.filter((_, k) => k % stride === 0);
-        const cartos = picked.map(i => Cesium.Cartographic.fromDegrees(flight.coords[i][0], flight.coords[i][1]));
-        try {
-          await Cesium.sampleTerrainMostDetailed(viewer.terrainProvider, cartos);
-          flight.terrainProfile = {
-            t: picked.map(i => flight.times[i]),
-            ground: cartos.map(c => (c.height ?? 0) - flight.offset),
-          };
-        } catch {
-          flight.terrainProfile = null;
-        }
-        return flight.terrainProfile;
-      })();
-      return flight.terrainPromise;
+        a = b;
+      }
+      return true;
+    }
+
+    // Great-circle distance in metres between two [lon, lat, ...] points.
+    function groundDistanceM([lon1, lat1], [lon2, lat2]) {
+      const rad = Math.PI / 180;
+      const dLat = (lat2 - lat1) * rad, dLon = (lon2 - lon1) * rad;
+      const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * rad) * Math.cos(lat2 * rad) * Math.sin(dLon / 2) ** 2;
+      return 2 * 6371008.8 * Math.asin(Math.sqrt(h));
+    }
+
+    // Replace every altitude with the terrain height beneath it (in the track's
+    // datum), just above the surface.
+    async function clampToGround(coords, offset) {
+      const cartos = coords.map(([lon, lat]) => Cesium.Cartographic.fromDegrees(lon, lat));
+      await sampleGround(cartos);
+      return coords.map(([lon, lat, alt], i) =>
+        [lon, lat, cartos[i].height !== undefined ? cartos[i].height - offset + GROUND_LIFT_M : alt]);
     }
 
     // Linear interpolation of the terrain profile at t seconds into the flight.
@@ -1174,7 +1294,8 @@
       if (alt !== undefined) {
         tFlight = Cesium.JulianDate.secondsDifference(now, f.start);
         const ground = groundAt(f.terrainProfile, tFlight);
-        if (ground !== undefined) agl = alt - ground;
+        if (f.onGround) agl = 0; // clamped to the terrain
+        else if (ground !== undefined) agl = alt - ground;
         const alt0 = f.altitudeAt(Cesium.JulianDate.addSeconds(now, -VARIO_WINDOW_SECONDS, new Cesium.JulianDate()));
         climb = alt0 === undefined ? 0 : (alt - alt0) / VARIO_WINDOW_SECONDS;
         const p1 = f.sampled.getValue(now);
