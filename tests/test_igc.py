@@ -5,7 +5,7 @@ import pytest
 
 from backend.igc import load_igc, parse_igc
 
-SAMPLE = Path(__file__).resolve().parent.parent / "DryB-2026-08-07.igc"
+SAMPLE = Path(__file__).resolve().parent.parent / "test.igc"
 
 
 @pytest.fixture(scope="module")

@@ -23,7 +23,7 @@ def test_config_without_keys(monkeypatch):
 
 
 def test_tracklog_format_detected_from_content():
-    igc = Path(__file__).resolve().parent.parent / "DryB-2026-08-07.igc"
+    igc = Path(__file__).resolve().parent.parent / "test.igc"
     assert parse_tracklog(igc.read_bytes())["properties"]["num_fixes"] == 15234
     gpx = b"""\xef\xbb\xbf
 <gpx version="1.1" xmlns="http://www.topografix.com/GPX/1/1"><trk><trkseg>
