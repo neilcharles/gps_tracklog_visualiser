@@ -1,4 +1,4 @@
-# GPS Tracklog Visualiser
+# Tracklog Viewer
 
 View IGC and GPX tracklogs (paragliding flights, hike-and-fly, walks, rides) in 3D over
 real terrain and satellite imagery, in your browser.

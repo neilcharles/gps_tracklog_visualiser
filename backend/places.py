@@ -21,7 +21,7 @@ OVERPASS_URLS = (
 )
 RETRY_DELAYS_S = (0, 2, 4, 8)  # pause before each attempt in OVERPASS_URLS
 REQUEST_TIMEOUT_S = 15
-USER_AGENT = "paragliding-analysis/0.1 (flight replay place labels)"
+USER_AGENT = "tracklog-viewer/0.1 (tracklog replay place labels)"
 PLACE_TYPES = ("city", "town", "village", "hamlet")
 MAX_BBOX_DEGREES = 3.0
 CACHE_GRID_DEGREES = 0.1

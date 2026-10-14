@@ -25,7 +25,7 @@ non-commercial use, so keep ion for running locally and don't give it to a publi
 1. Create a free account at https://cloud.maptiler.com and copy the default key from
    **Account → API keys** (https://cloud.maptiler.com/account/keys/).
 2. Edit the key and add your site under **Allowed HTTP origins**, e.g.
-   `paragliding-analysis-544952614531.europe-west2.run.app` (plus `localhost` for local
+   `tracklog-viewer-544952614531.europe-west2.run.app` (plus `localhost` for local
    development). The key is visible in the browser; this stops other sites using your quota.
 3. Store it in Secret Manager and let Cloud Run read it:
 
@@ -48,7 +48,7 @@ service pauses until next month rather than billing.
 From the project folder:
 
 ```bash
-gcloud run deploy paragliding-analysis \
+gcloud run deploy tracklog-viewer \
     --source . \
     --region europe-west2 \
     --allow-unauthenticated \

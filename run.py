@@ -1,4 +1,4 @@
-"""Start the tracklog visualiser locally.
+"""Start Tracklog Viewer locally.
 
     python run.py                # http://localhost:8000, opens your browser
     python run.py --port 9000
@@ -44,7 +44,7 @@ def report_map_provider() -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run the tracklog visualiser locally.")
+    parser = argparse.ArgumentParser(description="Run Tracklog Viewer locally.")
     parser.add_argument("--port", type=int, default=int(os.environ.get("PORT", 8000)))
     parser.add_argument("--no-browser", action="store_true", help="don't open a browser tab")
     args = parser.parse_args()

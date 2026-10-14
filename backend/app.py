@@ -11,7 +11,7 @@ from backend.places import PlacesError, fetch_places
 ROOT = Path(__file__).resolve().parent.parent
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 
-app = FastAPI(title="Paragliding Analysis")
+app = FastAPI(title="Tracklog Viewer")
 
 
 # Not /healthz: Cloud Run reserves some paths ending in "z".
