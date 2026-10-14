@@ -5,6 +5,10 @@ real terrain and satellite imagery, in your browser.
 
 ![Four paragliding tracklogs replayed over MapTiler terrain and satellite imagery](screenshot.jpg)
 
+**Watch a highlights reel exported from the app:**
+
+[![Highlights reel video exported from Tracklog Viewer (YouTube)](https://img.youtube.com/vi/hU1SWIC6QYM/hqdefault.jpg)](https://youtu.be/hU1SWIC6QYM)
+
 ## Quick start
 
 You need **Python 3.10 or newer** ([python.org](https://www.python.org/downloads/); on

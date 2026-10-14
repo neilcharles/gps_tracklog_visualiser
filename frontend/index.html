@@ -307,7 +307,7 @@
           <option value="1080" selected>1080p (1920×1080)</option>
           <option value="720">720p (1280×720)</option>
         </select></label>
-        <label class="ex-check"><input type="checkbox" id="ex-reel"><span>Highlights reel: Fast overhead playback with some slower close-ups</span></label>
+        <label class="ex-check"><input type="checkbox" id="ex-reel"><span>Short highlights: Fast overhead view with some slower close-ups</span></label>
       </div>
       <p id="ex-summary"></p>
       <p class="ex-note">The video uses the current camera mode and view settings, at 30 frames a second.
@@ -1261,6 +1261,8 @@
       const cine = camCtl.cine;
       const moveSeconds = cine.reel ? REEL_MOVE_SECONDS : CINEMATIC_MOVE_SECONDS;
       const reelCut = cine.reel ? advanceReel(cine.reel, playing ? dt : 0) : false;
+      // Only one tracklog (e.g. the others just removed): its telemetry stays up.
+      if (flights.length === 1 && chart.flight !== flights[0]) openChart(flights[0]);
 
       // User zoom (wheel, pinch): fold it into the zoom factor, as auto camera does.
       if (cine.target) {
@@ -1300,8 +1302,10 @@
           cine.move.elapsed = moveSeconds;
           snapTrackFade();
         }
-        // Show the telemetry while a single pilot is the subject.
-        const subject = shot.kind === 'pilot' ? flights.find(f => f.id === shot.flightId) : null;
+        // Show the telemetry while a single pilot is the subject, and
+        // throughout when there is only one tracklog.
+        const subject = shot.kind === 'pilot' ? flights.find(f => f.id === shot.flightId)
+          : flights.length === 1 ? flights[0] : null;
         if (subject) openChart(subject);
         else if (chart.flight) closeChart();
       }
@@ -2222,6 +2226,11 @@
           camCtl.paused = false;
           clock.multiplier = reel.slots[0].speed / EXPORT_FPS;
         }
+        // With only one tracklog, its telemetry shows throughout the video.
+        if (flights.length === 1 && !chart.flight) {
+          openChart(flights[0]);
+          saved.openedChart = true;
+        }
         const began = performance.now();
         let done = 0;
         for (let i = 0; i < frames && !exportRun.stop; i++) {
@@ -2279,6 +2288,7 @@
           else if (saved.camera === 'follow' && flights.some(f => f.id === saved.followedId)) setFollowed(saved.followedId);
           else if (saved.camera !== 'cinematic') setCinematicCamera(false);
         }
+        if (saved.openedChart && camCtl?.mode !== 'cinematic' && followedId === null) closeChart();
         clock.shouldAnimate = false;
         videoTimeMs = null;
         const now = performance.now();
