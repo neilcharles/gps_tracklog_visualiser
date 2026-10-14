@@ -51,7 +51,41 @@
     #panel-show:hover { border-color: #888; }
     #panel.hidden + #panel-show { display: block; }
     #upload { display: none; }
-    #add-files { margin-bottom: 8px; }
+    #add-files, #export-video { margin-bottom: 8px; }
+
+    /* Video export: setup dialog and progress screen. */
+    .modal {
+      position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center;
+      background: rgba(0, 0, 0, .55); padding: 16px; box-sizing: border-box;
+    }
+    .modal[hidden] { display: none; }
+    #export-progress { background: #111; } /* also hides the map, resized to the video while rendering */
+    .modal-box {
+      background: rgba(30, 30, 34, .96); color: #eee; border-radius: 8px; box-shadow: 0 2px 12px rgba(0,0,0,.5);
+      padding: 16px 18px; width: min(420px, 100%); box-sizing: border-box; font-size: 14px;
+    }
+    .modal-box h2 { font-size: 16px; margin: 0 0 12px; }
+    .modal button, .modal select, .modal input {
+      font: inherit; color: #eee; background: rgba(255, 255, 255, .06); border: 1px solid #555;
+      border-radius: 5px; padding: 5px 10px; cursor: pointer;
+    }
+    .modal input { cursor: text; color-scheme: dark; }
+    .modal select option { background: #2a2a2f; }
+    .modal button:hover { border-color: #888; background: rgba(255, 255, 255, .12); }
+    .modal button.primary { background: #3b82f6; border-color: #3b82f6; color: #fff; }
+    .modal button:disabled { opacity: .45; cursor: default; }
+    .ex-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; }
+    .ex-grid label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: #bbb; }
+    .ex-grid label.ex-check { grid-column: 1 / -1; flex-direction: row; align-items: flex-start; gap: 8px; color: #ddd; line-height: 1.35; }
+    .ex-check input { margin: 2px 0 0; flex: none; }
+    #ex-summary { margin: 14px 0 6px; font-weight: 600; min-height: 1.3em; }
+    .ex-note { margin: 0 0 14px; font-size: 12px; color: #aaa; line-height: 1.4; }
+    .ex-buttons { display: flex; justify-content: flex-end; gap: 8px; }
+    #export-progress .modal-box { width: min(560px, 100%); }
+    #ex-preview { display: block; width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: 4px; }
+    #ex-status { margin: 10px 0 8px; font-variant-numeric: tabular-nums; }
+    .ex-progress { height: 4px; background: rgba(255, 255, 255, .12); border-radius: 2px; margin-bottom: 14px; }
+    #ex-bar { height: 100%; width: 0; background: #3b82f6; border-radius: 2px; }
     #view-block {
       background: rgba(255, 255, 255, .07); border: 1px solid #555; border-radius: 6px;
       padding: 2px 10px; margin-bottom: 12px;
@@ -107,7 +141,7 @@
     }
     #playbar.disabled > * { opacity: .4; pointer-events: none; }
     #playbar button.icon { width: 34px; height: 30px; padding: 0; font-size: 14px; flex: none; }
-    #pb-time { font-variant-numeric: tabular-nums; white-space: nowrap; min-width: 11ch; }
+    #pb-time { font-variant-numeric: tabular-nums; white-space: nowrap; min-width: 5ch; }
     #pb-track { flex: 1; min-width: 80px; }
     #pb-slider { width: 100%; margin: 0; accent-color: #3b82f6; cursor: pointer; display: block; }
     #pb-coverage { position: relative; margin-top: 3px; }
@@ -124,6 +158,13 @@
     }
     #flight-chart.open { opacity: 1; transform: none; visibility: visible; }
     #flight-chart canvas { position: absolute; }
+    #fc-caption {
+      position: absolute; left: 14px; right: 14px; top: 6px; display: flex; align-items: center; gap: 7px;
+      font-size: 13px; white-space: nowrap; overflow: hidden;
+    }
+    #fc-swatch { flex: none; width: 10px; height: 10px; border-radius: 2px; box-shadow: 0 1px 2px rgba(0, 0, 0, .6); }
+    #fc-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+    #fc-glider { color: rgba(255, 255, 255, .65); overflow: hidden; text-overflow: ellipsis; }
     #fc-readouts { position: absolute; display: grid; grid-template-columns: repeat(3, auto); justify-content: space-between; align-content: center; gap: 6px 14px; }
     #flight-chart.stacked #fc-readouts { gap: 4px 10px; }
     .fc-item { display: flex; flex-direction: column; line-height: 1.1; white-space: nowrap; }
@@ -133,6 +174,8 @@
     #flight-chart.short #fc-readouts { gap: 2px 12px; }
     #flight-chart.short .fc-cap { font-size: 10px; }
     body.chart-open .cesium-viewer-bottom { transform: translateY(calc(-1 * var(--chart-h, 0px))); }
+    /* Keep the menu clear of the chart (it scrolls instead). */
+    body.chart-open #panel { max-height: calc(100% - 110px - var(--chart-h, 0px)); }
 
     /* Cesium's credits, restyled to match. */
     .cesium-viewer-bottom { left: 12px !important; right: auto !important; bottom: 62px !important; }
@@ -143,11 +186,13 @@
        slider), and the menu spans the width above it. */
     @media (max-width: 640px) {
       #panel { right: 12px; width: auto; max-height: calc(100% - 150px); }
+      body.chart-open #panel { max-height: calc(100% - 150px - var(--chart-h, 0px)); }
       #playbar { flex-wrap: wrap; gap: 8px 10px; padding: 8px 10px; }
       #pb-time { margin-left: auto; min-width: 0; }
       #pb-track { order: 10; flex: 1 1 auto; }
       #pb-span { order: 11; }
       #pb-fullscreen { display: none; } /* not supported for pages on iPhone; the bar needs the room */
+      #playbar .wide { display: none; } /* "Auto", "Cinematic" */
       .cesium-viewer-bottom { bottom: 104px !important; }
     }
     @media (max-width: 400px) {
@@ -161,6 +206,7 @@
     @media (max-height: 500px) {
       #panel, #panel-show { top: 8px; left: 8px; }
       #panel { width: min(330px, calc(100vw - 16px)); padding: 8px 10px; font-size: 13px; max-height: calc(100% - 66px); }
+      body.chart-open #panel { max-height: calc(100% - 66px - var(--chart-h, 0px)); }
       #panel .flight-head { gap: 6px; }
       #panel .flight button { padding: 2px 6px; }
       .panel-head { margin: -2px 0 6px; }
@@ -205,6 +251,7 @@
     </div>
     <h1>Tracklogs</h1>
     <button id="add-files">Add tracklogs…</button>
+    <button id="export-video" disabled title="Render the replay to an MP4 video">Export video…</button>
     <input type="file" id="upload" accept=".igc,.IGC,.gpx,.GPX" multiple>
     <ul id="flights"></ul>
     <div id="notice"></div>
@@ -215,6 +262,7 @@
   <button id="panel-show" title="Show menu">☰ Menu</button>
 
   <div id="flight-chart" aria-hidden="true">
+    <div id="fc-caption"><span id="fc-swatch"></span><span id="fc-name"></span><span id="fc-glider"></span></div>
     <div id="fc-readouts">
       <div class="fc-item"><span class="fc-val" id="fc-alt">–</span><span class="fc-cap">Altitude</span></div>
       <div class="fc-item"><span class="fc-val" id="fc-agl">–</span><span class="fc-cap">Above ground</span></div>
@@ -229,7 +277,8 @@
 
   <div id="playbar" class="disabled">
     <button id="pb-play" class="icon" title="Play / pause (Space)">▶</button>
-    <button id="auto-camera" class="toggle active" title="Pan and zoom to keep every pilot in view">Auto camera</button>
+    <button id="auto-camera" class="toggle" title="Pan and zoom to keep every pilot in view">Auto<span class="wide"> camera</span></button>
+    <button id="cinematic-camera" class="toggle active" title="Slowly vary the view: everyone, single pilots, the whole tracks">Cinematic<span class="wide"> camera</span></button>
     <select id="pb-speed" title="Playback speed">
       <option value="1">1×</option>
       <option value="10">10×</option>
@@ -238,7 +287,7 @@
       <option value="120">120×</option>
       <option value="300">300×</option>
     </select>
-    <span id="pb-time">--:--:-- UTC</span>
+    <span id="pb-time">--:--</span>
     <div id="pb-track">
       <input type="range" id="pb-slider" min="0" max="1" step="1" value="0">
       <div id="pb-coverage"></div>
@@ -247,12 +296,50 @@
     <button id="pb-fullscreen" class="icon" title="Fullscreen">⛶</button>
   </div>
 
+  <div id="export-dialog" class="modal" hidden>
+    <form class="modal-box" id="ex-form">
+      <h2>Export video</h2>
+      <div class="ex-grid">
+        <label>Start<input type="time" id="ex-start" required></label>
+        <label>End<input type="time" id="ex-end" required></label>
+        <label>Speed<select id="ex-speed"></select></label>
+        <label>Size<select id="ex-size">
+          <option value="1080" selected>1080p (1920×1080)</option>
+          <option value="720">720p (1280×720)</option>
+        </select></label>
+        <label class="ex-check"><input type="checkbox" id="ex-reel"><span>Highlights reel: Fast overhead playback with some slower close-ups</span></label>
+      </div>
+      <p id="ex-summary"></p>
+      <p class="ex-note">The video uses the current camera mode and view settings, at 30 frames a second.
+        Each frame waits for its scenery to load, so rendering takes longer than the video lasts,
+        and it uses your map tile allowance.</p>
+      <div class="ex-buttons">
+        <button type="button" id="ex-cancel">Cancel</button>
+        <button type="submit" id="ex-go" class="primary">Render video</button>
+      </div>
+    </form>
+  </div>
+  <div id="export-progress" class="modal" hidden>
+    <div class="modal-box">
+      <h2>Rendering video…</h2>
+      <canvas id="ex-preview" width="512" height="288"></canvas>
+      <p id="ex-status">Starting…</p>
+      <div class="ex-progress"><div id="ex-bar"></div></div>
+      <div class="ex-buttons">
+        <button type="button" id="ex-abort">Cancel</button>
+        <button type="button" id="ex-stop" class="primary">Stop &amp; save</button>
+      </div>
+    </div>
+  </div>
+
   <script src="https://cdn.jsdelivr.net/npm/cesium@1.123.0/Build/Cesium/Cesium.js"></script>
   <script>
     const TRAIL_SECONDS = 300;
     const VARIO_WINDOW_SECONDS = 10;
     const TERRAIN_SAMPLE_LEVEL = 13; // used only if the terrain provider lacks availability info
     const TRACK_DECIMATION = 3;
+    const TRACK_ALPHA = 0.6;
+    const TRACK_FADE_SECONDS = 0.6; // full tracks fading in or out
     const AUTO_CAMERA_MIN_RADIUS = 1000; // metres; how close auto camera zooms on one pilot
     const AUTO_CAMERA_MARGIN = 1.4;
     const AUTO_CAMERA_SMOOTHING_SECONDS = 0.8;
@@ -270,6 +357,34 @@
     const FOLLOW_WINDOW_S = 60;
     const FOLLOW_SAMPLE_STEP_S = 2;
     const FOLLOW_MIN_RANGE = 2400; // metres; closest the follow camera gets
+    // Cinematic camera: shot lengths in seconds of playback (wall clock), how
+    // often each kind is picked, and how it moves between them.
+    const CINEMATIC_SHOTS = {
+      group: { duration: [14, 20], weight: 3 },    // everyone, a little wider than auto camera
+      pilot: { duration: [12, 18], weight: 3 },    // one pilot, framed as follow does
+      overview: { duration: [10, 14], weight: 3 },   // the whole tracks
+    };
+    const CINEMATIC_OVERVIEW_EVERY = 3; // at least this many other shots between overviews
+    const CINEMATIC_GROUP_WIDEN = 1.3;
+    const CINEMATIC_PILOT_CLOSENESS = [0.8, 1.15]; // range multiplier, varied per pilot shot
+    const CINEMATIC_OVERVIEW_PITCH_DEG = -50; // at least this steep
+    const CINEMATIC_OVERVIEW_CLOSENESS = 0.75; // tracks' outer points are sparse, so frame a little tighter
+    const CINEMATIC_SPIN_DEG_S = [1.5, 3]; // slow orbit, direction alternating between shots
+    const CINEMATIC_MOVE_SECONDS = 5; // eased glide from one shot to the next
+    const CINEMATIC_PULLBACK = 0.5; // rise by up to this x the distance travelled, mid-glide
+    const CINEMATIC_SPIN_SETTLE_SECONDS = 4; // time for the orbit to change speed or direction
+    // Highlights reel (video export): close-ups at normal speed alternating
+    // with whole-tracks overviews played fast, filling REEL_TARGET_SECONDS.
+    // Times are video seconds; speeds are playback multipliers. Long time
+    // ranges get fewer close-ups, so the overviews stay below the top speed;
+    // short ones get more close-ups and, if need be, slower speeds.
+    const REEL_TARGET_SECONDS = 55;
+    const REEL_CLOSEUP_SECONDS = 7; // each, unless the time range is short
+    const REEL_CLOSEUP_SPEED = 30;
+    const REEL_MIN_CLOSEUP_SPEED = 10; // short time ranges: below this, drop overviews instead
+    const REEL_OVERVIEW_SPEED = [90, 800]; // preferred range; faster than 800x only for very long ranges
+    const REEL_MIN_OVERVIEW_SECONDS = 6;
+    const REEL_MOVE_SECONDS = 3; // quicker glides between shots, with the speed easing across
     // Depth of field (tilt-shift): sharp band half-height and blur falloff as
     // fractions of screen height, max blur tap spacing, and colour grade.
     const TILT_SHIFT_SHARP_HALF_HEIGHT = 0.06;
@@ -277,6 +392,7 @@
     const TILT_SHIFT_MAX_STEP_PX = 3.0;
     const TILT_SHIFT_SATURATION = 1.4;
     const TILT_SHIFT_CONTRAST = 1.12;
+    const TILT_SHIFT_FOCUS_SECONDS = 0.16; // easing of the sharp band towards the pilots
     // Place labels: height above ground, and how far away each place type stays visible.
     const PLACE_LABEL_HEIGHT = 250; // metres
     const PLACE_MAX_DISTANCE = { city: 120000, town: 60000, village: 25000, hamlet: 10000 }; // metres
@@ -304,11 +420,19 @@
     const PALETTE = ['#ffd23f', '#ee4266', '#3bceac', '#540d6e', '#0ead69', '#f78c6b', '#118ab2', '#ffffff'];
 
     let viewer;
+    // Milliseconds for animation timing (easing, fades, throttles). Normally the
+    // wall clock; while exporting a video it is the video's own time, advanced
+    // exactly one frame per frame, so the result doesn't depend on render speed.
+    let videoTimeMs = null;
+    const appNow = () => videoTimeMs ?? performance.now();
     let hasTerrain = false;
+    let mapProvider = 'osm'; // 'maptiler', 'ion' or 'osm'; for attribution in exported video
     let flights = [];
     let nextId = 0;
     let followedId = null;
     let showTracks = true;
+    let trackFade = 1; // full tracks' current opacity, 0..1, eased towards tracksWanted()
+    let lastTrackFadeMs = 0;
     let showTrails = true;
     let showPlaces = false;
     let placeRetryTimer = null;
@@ -354,6 +478,7 @@
       }
       if (maptilerTerrain) {
         hasTerrain = true;
+        mapProvider = 'maptiler';
         // CesiumJS shows the "Cesium ion" logo by default; nothing here comes
         // from ion, so drop it (must be set before the viewer is created).
         Cesium.CreditDisplay.cesiumCredit = undefined;
@@ -383,6 +508,7 @@
       if (cfg.cesium_ion_token) {
         Cesium.Ion.defaultAccessToken = cfg.cesium_ion_token;
         hasTerrain = true;
+        mapProvider = 'ion';
         return new Cesium.Viewer('viewer', {
           ...common,
           terrainProvider: await Cesium.createWorldTerrainAsync(),
@@ -446,11 +572,16 @@
       };
 
       // Colour-bearing properties are kept so the colour can be changed later.
-      const trackMaterial = new Cesium.ColorMaterialProperty(color.withAlpha(0.6));
+      // The track's alpha follows trackFade; a callback colour is updated in
+      // place each frame rather than rebuilding the polyline.
+      let trackColor = color.clone();
+      const trackRgba = new Cesium.Color();
+      const trackMaterial = new Cesium.ColorMaterialProperty(new Cesium.CallbackProperty(
+        () => Cesium.Color.clone(trackColor, trackRgba).withAlpha(TRACK_ALPHA * trackFade, trackRgba), false));
       const trailMaterial = new Cesium.PolylineGlowMaterialProperty({ glowPower: 0.25, color });
 
       const track = viewer.entities.add({
-        show: showTracks,
+        show: trackFade > 0,
         polyline: {
           positions: positions.filter((_, i) => i % TRACK_DECIMATION === 0),
           width: 2,
@@ -488,14 +619,16 @@
         setColor(css) {
           const c = Cesium.Color.fromCssColorString(css);
           this.cssColor = css;
-          trackMaterial.color = c.withAlpha(0.6);
+          trackColor = c;
           trailMaterial.color = c;
           setFlagColor(flag, css);
+          if (chart.flight === this) updateChartCaption();
         },
         setName(name) {
           this.name = name;
           flag.querySelector('.flag-name').textContent = name;
           renderPlaybar(); // coverage strip tooltips
+          if (chart.flight === this) updateChartCaption();
         },
       };
       flights.push(flight);
@@ -508,6 +641,7 @@
       const flight = flights.find(f => f.id === id);
       if (!flight) return;
       if (followedId === id) setFollowed(null);
+      if (chart.flight === flight) closeChart(); // e.g. cinematic camera's pilot shot
       flight.entities.forEach(e => viewer.entities.remove(e));
       flight.flag.remove();
       flights = flights.filter(f => f.id !== id);
@@ -516,7 +650,7 @@
       renderList();
     }
 
-    // Clock spans all loaded flights; flights play at their real (UTC) times.
+    // Clock spans all loaded flights; flights play at their real times.
     // The playhead keeps its place as flights are added or removed, unless it
     // falls outside the new span or this is the first flight loaded.
     let clockInUse = false;
@@ -536,6 +670,56 @@
       clock.stopTime = stop.clone();
       if (!keepTime) clock.currentTime = start.clone();
       clock.clockRange = Cesium.ClockRange.CLAMPED;
+      updateClockZone();
+    }
+
+    // Clocks show local time where the earliest flight starts. The time zone
+    // comes from tz-lookup, loaded on first use; until it loads, or if it
+    // can't, clocks show UTC.
+    const TZ_LOOKUP_LIB = 'https://cdn.jsdelivr.net/npm/@photostructure/tz-lookup@11.7.0/+esm';
+    let tzLookup = null;
+    let clockZone = makeClockZone('UTC');
+
+    function makeClockZone(name) {
+      const opts = { timeZone: name, hourCycle: 'h23' };
+      return {
+        name,
+        hm: new Intl.DateTimeFormat('en-GB', { ...opts, hour: '2-digit', minute: '2-digit' }),
+        parts: new Intl.DateTimeFormat('en-GB', {
+          ...opts, year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric',
+        }),
+      };
+    }
+
+    async function updateClockZone() {
+      if (!flights.length) return;
+      const first = flights.reduce((a, b) => Cesium.JulianDate.lessThan(b.start, a.start) ? b : a);
+      const [lon, lat] = first.coords[0];
+      let name = 'UTC';
+      try {
+        tzLookup ??= (await import(TZ_LOOKUP_LIB)).default;
+        name = tzLookup(lat, lon);
+        makeClockZone(name); // throws if the browser doesn't know the zone
+      } catch (e) {
+        console.warn('Time zone lookup failed; showing UTC:', e);
+        name = 'UTC';
+      }
+      if (name === clockZone.name) return;
+      clockZone = makeClockZone(name);
+      renderPlaybar();
+    }
+
+    // Local date and time fields of an instant, as numbers.
+    function localParts(date) {
+      const p = {};
+      clockZone.parts.formatToParts(date).forEach(({ type, value }) => { p[type] = Number(value); });
+      return p;
+    }
+
+    // Local time minus UTC at an instant, in milliseconds.
+    function zoneOffsetMs(date) {
+      const p = localParts(date);
+      return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) - Math.floor(date.getTime() / 1000) * 1000;
     }
 
     // Fly to the flights: with auto camera, to the pilots' current positions
@@ -551,20 +735,67 @@
         camCtl.paused = true;
         camCtl.center = null;
       } else {
-        const points = flights.flatMap(f => f.positions.filter((_, i) => i % 20 === 0));
-        if (!points.length) return;
-        sphere = Cesium.BoundingSphere.fromPoints(points);
+        sphere = allTracksSphere();
+        if (!sphere) return;
         pitch = Cesium.Math.toRadians(-35);
       }
       const resume = () => {
         if (!camCtl) return;
         camCtl.paused = false;
-        camCtl.lastMs = performance.now();
+        camCtl.lastMs = appNow();
       };
       viewer.camera.lookAtTransform(Cesium.Matrix4.IDENTITY); // release any auto-camera lookAt
       viewer.camera.flyToBoundingSphere(sphere, {
         offset: new Cesium.HeadingPitchRange(0, pitch, 0), duration: 2, complete: resume, cancel: resume,
       });
+    }
+
+    // Bounding sphere of every loaded track, or null with none loaded.
+    function allTracksSphere() {
+      const points = flights.flatMap(f => f.positions.filter((_, i) => i % 20 === 0));
+      return points.length ? Cesium.BoundingSphere.fromPoints(points) : null;
+    }
+
+    // Full tracks: shown when ticked, and by cinematic camera while it is
+    // pulled out to the whole-tracks overview.
+    function tracksWanted() {
+      return showTracks || (camCtl?.mode === 'cinematic' && camCtl.cine?.shot?.kind === 'overview');
+    }
+
+    function setShowTracks(on) {
+      showTracks = on;
+      document.getElementById('show-tracks').checked = on;
+    }
+
+    // Cinematic camera defaults Full tracks to off; leaving it restores the
+    // previous setting (or keeps them on if ticked meanwhile).
+    let tracksBeforeCinematic = null;
+    function enterCinematicTracks() {
+      tracksBeforeCinematic = showTracks;
+      setShowTracks(false);
+    }
+    function leaveCinematicTracks() {
+      if (tracksBeforeCinematic !== null) setShowTracks(showTracks || tracksBeforeCinematic);
+      tracksBeforeCinematic = null;
+    }
+
+    // Ease the tracks' opacity towards what is wanted; hide them once fully
+    // faded so they cost nothing to draw.
+    function updateTrackFade() {
+      const now = appNow();
+      const dt = Cesium.Math.clamp((now - lastTrackFadeMs) / 1000, 0, 0.1);
+      lastTrackFadeMs = now;
+      const target = tracksWanted() ? 1 : 0;
+      if (trackFade === target) return;
+      const step = dt / TRACK_FADE_SECONDS;
+      trackFade = target > trackFade ? Math.min(trackFade + step, 1) : Math.max(trackFade - step, 0);
+      flights.forEach(f => { f.track.show = trackFade > 0; });
+    }
+
+    // Jump straight to the wanted state, e.g. on a video's first frame.
+    function snapTrackFade() {
+      trackFade = tracksWanted() ? 1 : 0;
+      flights.forEach(f => { f.track.show = trackFade > 0; });
     }
 
     // Flag text is the pilot's own hue, pushed very dark or very light,
@@ -583,25 +814,37 @@
       flag.style.setProperty('--ink', ink.toCssColorString());
     }
 
-    // Place each pilot's flag so its pointer touches the pilot on screen; hide
-    // it outside the flight's time span or when the pilot is over the horizon.
-    function updateFlags() {
+    // Where each pilot's flag goes: { flight, x, y, alt } in canvas pixels for
+    // pilots flying now and not over the horizon. Used for the screen flags and
+    // for those drawn into exported video.
+    function flagPlacements() {
       const time = viewer.clock.currentTime;
       const occluder = new Cesium.EllipsoidalOccluder(Cesium.Ellipsoid.WGS84, viewer.camera.positionWC);
+      const placed = [];
       for (const f of flights) {
         const pos = f.pilot.isAvailable(time) ? f.sampled.getValue(time) : undefined;
         const win = pos && occluder.isPointVisible(pos)
           ? Cesium.SceneTransforms.worldToWindowCoordinates(viewer.scene, pos) : undefined;
-        if (!win) {
+        if (win) placed.push({ flight: f, x: win.x, y: win.y, alt: Math.round(f.altitudeAt(time)) });
+      }
+      return placed;
+    }
+
+    // Place each pilot's flag so its pointer touches the pilot on screen; hide
+    // it outside the flight's time span or when the pilot is over the horizon.
+    function updateFlags() {
+      const placed = new Map(flagPlacements().map(pl => [pl.flight, pl]));
+      for (const f of flights) {
+        const pl = placed.get(f);
+        if (!pl) {
           f.flag.style.display = 'none';
           continue;
         }
         f.flag.style.display = '';
-        f.flag.style.transform = `translate(${Math.round(win.x)}px, ${Math.round(win.y)}px) translate(-50%, -100%)`;
-        const alt = Math.round(f.altitudeAt(time));
-        if (alt !== f.shownAlt) {
-          f.shownAlt = alt;
-          f.flagAlt.textContent = `${alt} m`;
+        f.flag.style.transform = `translate(${Math.round(pl.x)}px, ${Math.round(pl.y)}px) translate(-50%, -100%)`;
+        if (pl.alt !== f.shownAlt) {
+          f.shownAlt = pl.alt;
+          f.flagAlt.textContent = `${pl.alt} m`;
         }
       }
     }
@@ -631,22 +874,35 @@
     //   follow: the followed pilot's track over the last FOLLOW_WINDOW_S of
     //           flight time, so while circling the camera holds on the
     //           thermal's centre instead of orbiting with the glider.
-    let camCtl = null; // { mode, center, range, pitch, zoom, lastMs, paused } while active
+    //   cinematic: a slow director cycling between the above and the whole
+    //           tracks; see updateCinematicCamera.
+    let camCtl = null; // { mode, center, range, pitch, zoom, lastMs, paused, cine } while active
 
     function startCamCtl(mode) {
       // Carry the eased state over when switching modes so the view glides across.
       const prev = camCtl;
+      if (prev?.mode === 'cinematic' && mode !== 'cinematic') {
+        closeChart(); // its pilot shot's chart (follow reopens its own)
+        leaveCinematicTracks();
+      }
+      if (mode === 'cinematic' && prev?.mode !== 'cinematic') enterCinematicTracks();
       camCtl = {
         mode, center: prev?.center?.clone() ?? null, range: prev?.range ?? null, pitch: prev?.pitch ?? null,
         zoom: 1, // the user's zoom, as a multiple of the automatic range; reset by the buttons
-        lastMs: performance.now(), paused: false,
+        lastMs: appNow(), paused: false,
       };
       document.getElementById('auto-camera').classList.toggle('active', mode === 'auto');
+      document.getElementById('cinematic-camera').classList.toggle('active', mode === 'cinematic');
     }
 
     function stopCamCtl() {
+      if (camCtl?.mode === 'cinematic') {
+        closeChart();
+        leaveCinematicTracks();
+      }
       camCtl = null;
       document.getElementById('auto-camera').classList.remove('active');
+      document.getElementById('cinematic-camera').classList.remove('active');
       viewer.camera.lookAtTransform(Cesium.Matrix4.IDENTITY);
     }
 
@@ -657,7 +913,11 @@
         return points.length ? Cesium.BoundingSphere.fromPoints(points) : null;
       }
       const flight = flights.find(f => f.id === followedId);
-      if (!flight) return null;
+      return flight ? pilotSphere(flight) : null;
+    }
+
+    // A pilot and their recent track, or null if they aren't flying now.
+    function pilotSphere(flight) {
       const now = viewer.clock.currentTime;
       const current = flight.sampled.getValue(now);
       if (!current) return null;
@@ -711,11 +971,11 @@
       return -Math.asin(Cesium.Math.clamp(needed, 0, 1));
     }
 
-    // One-off fly-out to frame a single pilot's whole track. Auto camera and
-    // follow would immediately pull the view away again, so both are switched off.
+    // One-off fly-out to frame a single pilot's whole track. The camera modes
+    // would immediately pull the view away again, so they are switched off.
     function showEntireTrack(flight) {
       setFollowed(null);
-      setAutoCamera(false);
+      if (camCtl) stopCamCtl();
       const points = flight.positions.filter((_, i) => i % 20 === 0);
       viewer.camera.flyToBoundingSphere(Cesium.BoundingSphere.fromPoints(points), {
         offset: new Cesium.HeadingPitchRange(viewer.camera.heading, Cesium.Math.toRadians(-45), 0),
@@ -733,8 +993,31 @@
       }
     }
 
+    function setCinematicCamera(on) {
+      if (on) {
+        if (camCtl?.mode === 'cinematic') return;
+        startCamCtl('cinematic'); // eases over from auto or follow
+        if (followedId !== null) setFollowed(null);
+      } else if (camCtl?.mode === 'cinematic') {
+        stopCamCtl();
+      }
+    }
+
+    // Seconds since the camera controller last ran, capped so a stalled tab
+    // doesn't make it lurch.
+    function cameraDt() {
+      const now = appNow();
+      const dt = Cesium.Math.clamp((now - camCtl.lastMs) / 1000, 0, 0.1);
+      camCtl.lastMs = now;
+      return dt;
+    }
+
     function updateAutoCamera() {
       if (!camCtl || camCtl.paused) return;
+      if (camCtl.mode === 'cinematic') {
+        updateCinematicCamera();
+        return;
+      }
       const sphere = cameraTarget();
       if (!sphere) return;
 
@@ -745,10 +1028,7 @@
       if (follow) targetRange = Math.max(targetRange, FOLLOW_MIN_RANGE);
       targetRange *= camCtl.zoom;
 
-      const now = performance.now();
-      const dt = Math.max(0, now - camCtl.lastMs) / 1000; // never negative, or the easing would overshoot
-      const alpha = 1 - Math.exp(-dt / AUTO_CAMERA_SMOOTHING_SECONDS);
-      camCtl.lastMs = now;
+      const alpha = 1 - Math.exp(-cameraDt() / AUTO_CAMERA_SMOOTHING_SECONDS);
       if (!camCtl.center) {
         // Start from wherever the camera is looking now, so taking control eases in.
         const look = cameraLookPoint() ?? sphere.center;
@@ -777,6 +1057,281 @@
       const heading = viewer.camera.heading;
       const pitch = terrainSafePitch(camCtl.center, camCtl.pitch, camCtl.range);
       viewer.camera.lookAt(camCtl.center, new Cesium.HeadingPitchRange(heading, pitch, camCtl.range));
+    }
+
+    // Cinematic camera. A shot frames everyone, one pilot or the whole tracks
+    // for a while, orbiting slowly; then the next shot takes over. Each of the
+    // centre, log range and pitch is the shot's framing plus an offset. At a cut
+    // the offset is set so the view doesn't move, then eased to zero over
+    // CINEMATIC_MOVE_SECONDS (slow start, slow finish), rising mid-glide on long
+    // moves; meanwhile the framing keeps tracking its moving subject. Shots are
+    // picked with a seeded generator, so the same flights give the same film.
+
+    // Small seeded PRNG (mulberry32): returns floats in [0, 1).
+    function seededRandom(seed) {
+      return () => {
+        seed = (seed + 0x6d2b79f5) | 0;
+        let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+      };
+    }
+
+    // 0 to 1 with zero velocity and acceleration at both ends.
+    const smootherstep = (u) => u * u * u * (u * (u * 6 - 15) + 10);
+
+    // One step of a critically damped spring { x, v } towards target, settling
+    // in about `settle` seconds. Implicit, so stable for any dt.
+    function springStep(s, target, dt, settle) {
+      const w = 6 / settle;
+      const f = 1 + 2 * dt * w, hoo = dt * w * w, hhoo = dt * hoo;
+      const x = (f * s.x + dt * s.v + hhoo * target) / (f + hhoo);
+      s.v = (s.v + hoo * (target - s.x)) / (f + hhoo);
+      s.x = x;
+    }
+
+    // Pitch for a camera this far out: auto camera's, steeper for the overview.
+    function cinematicPitch(kind, range, fov) {
+      const pitch = autoCameraPitch(range * Math.sin(fov / 2) / AUTO_CAMERA_MARGIN);
+      return kind === 'overview' ? Math.min(pitch, Cesium.Math.toRadians(CINEMATIC_OVERVIEW_PITCH_DEG)) : pitch;
+    }
+
+    // What a shot frames now: { center, range }, or null if its subject has gone.
+    function shotFraming(shot, fov) {
+      let sphere, minRange = 0;
+      if (shot.kind === 'overview') {
+        sphere = shot.sphere;
+      } else if (shot.kind === 'group') {
+        const points = currentPilotPositions();
+        if (!points.length) return null;
+        sphere = Cesium.BoundingSphere.fromPoints(points);
+        sphere.radius = Math.max(sphere.radius, AUTO_CAMERA_MIN_RADIUS) * CINEMATIC_GROUP_WIDEN;
+      } else {
+        const flight = flights.find(f => f.id === shot.flightId);
+        sphere = flight?.pilot.isAvailable(viewer.clock.currentTime) ? pilotSphere(flight) : null;
+        if (!sphere) return null;
+        minRange = FOLLOW_MIN_RANGE;
+      }
+      const range = Math.max(AUTO_CAMERA_MARGIN * sphere.radius / Math.sin(fov / 2), minRange);
+      return { center: sphere.center, range: range * shot.closeness };
+    }
+
+    // Choose the next shot: never the same kind twice running, overviews only
+    // now and then, and single-pilot shots taking turns among those flying.
+    // In a highlights reel the reel's current slot says overview or close-up.
+    // An overview lasts the whole slot; a long close-up slot cuts between
+    // group and pilot shots, the last one running on to the slot's end.
+    function nextShot(cine) {
+      if (!flights.length) return null;
+      const rand = (lo, hi) => lo + (hi - lo) * cine.random();
+      const now = viewer.clock.currentTime;
+      const flying = flights.filter(f => f.pilot.isAvailable(now));
+      const options = flying.length ? ['group', 'pilot'] : [];
+      const slot = cine.reel?.slots[cine.reel.index];
+      if (slot) {
+        if (!slot.closeup || !flying.length) options.splice(0, options.length, 'overview');
+      } else if (!flying.length || cine.sinceOverview >= CINEMATIC_OVERVIEW_EVERY) {
+        options.push('overview');
+      }
+      // Starting from no particular view (e.g. the whole globe on first load),
+      // open with the whole tracks as an establishing shot: the gentlest way in.
+      if (!cine.shot && cine.fromNowhere) options.splice(0, options.length, 'overview');
+      const pool = options.length > 1 ? options.filter(k => k !== cine.shot?.kind) : options;
+      let pick = rand(0, pool.reduce((sum, k) => sum + CINEMATIC_SHOTS[k].weight, 0));
+      const kind = pool.find(k => (pick -= CINEMATIC_SHOTS[k].weight) < 0) ?? pool[pool.length - 1];
+
+      let duration = rand(...CINEMATIC_SHOTS[kind].duration);
+      if (slot && (kind === 'overview' || slot.seconds - cine.reel.elapsed - duration < CINEMATIC_SHOTS[kind].duration[0])) {
+        duration = Infinity;
+      }
+      const shot = { kind, elapsed: 0, duration, closeness: 1 };
+      cine.sinceOverview = kind === 'overview' ? 0 : cine.sinceOverview + 1;
+      if (kind === 'overview') {
+        shot.sphere = allTracksSphere();
+        shot.closeness = CINEMATIC_OVERVIEW_CLOSENESS;
+      } else if (kind === 'pilot') {
+        const last = flights.findIndex(f => f.id === cine.lastPilotId);
+        const next = flying.find(f => flights.indexOf(f) > last) ?? flying[0];
+        shot.flightId = cine.lastPilotId = next.id;
+        shot.closeness = rand(...CINEMATIC_PILOT_CLOSENESS);
+      }
+      cine.spinSign = -cine.spinSign;
+      shot.spin = cine.spinSign * Cesium.Math.toRadians(rand(...CINEMATIC_SPIN_DEG_S)) * (kind === 'overview' ? 0.6 : 1);
+      return shot;
+    }
+
+    // Cut to a shot without moving the view: set the offsets so framing +
+    // offset equals what is on screen, and start easing them away.
+    function startShot(cine, shot, framing, fov) {
+      cine.shot = shot;
+      cine.target = { center: framing.center.clone(), logRange: Math.log(framing.range) };
+      cine.move = {
+        elapsed: 0,
+        center: Cesium.Cartesian3.subtract(camCtl.center, framing.center, new Cesium.Cartesian3()),
+        logRange: Math.log(cine.baseRange) - cine.target.logRange,
+        pitch: cine.basePitch - cinematicPitch(shot.kind, camCtl.range, fov),
+        pull: cine.pull, // carried over (and eased out) if the last glide hadn't finished
+      };
+      cine.move.rise = CINEMATIC_PULLBACK * Cesium.Cartesian3.magnitude(cine.move.center);
+    }
+
+    // Plan a highlights reel covering `flightSeconds` of the clock in
+    // REEL_TARGET_SECONDS: n close-ups alternating with n overviews, opening on
+    // a close-up and closing on an overview. The speed eases from slot to slot
+    // over REEL_MOVE_SECONDS (see advanceReel); a smootherstep ease from a to b
+    // covers (a + b) / 2 per second, so over the whole reel the easing adds
+    // (close-up speed - overview speed) x REEL_MOVE_SECONDS / 2, and the slots
+    // cover exactly the time range when
+    //   overview speed x overview seconds + close-up speed x close-up seconds
+    //     + (close-up speed - overview speed) x REEL_MOVE_SECONDS / 2 = flightSeconds
+    function planHighlightsReel(flightSeconds) {
+      const T = REEL_TARGET_SECONDS, F = flightSeconds, half = REEL_MOVE_SECONDS / 2;
+      const [minSpeed, maxSpeed] = REEL_OVERVIEW_SPEED;
+      const reel = (n, closeSpeed, overviewSeconds, overviewSpeed) => {
+        const slots = [];
+        for (let i = 0; i < n; i++) {
+          slots.push({ closeup: true, seconds: (T - overviewSeconds) / n, speed: closeSpeed });
+          slots.push({ closeup: false, seconds: overviewSeconds / n, speed: overviewSpeed });
+        }
+        return { slots, closeupSpeed: closeSpeed, overviewSpeed, seconds: T };
+      };
+      // As many close-ups as fit with overviews of at least the minimum length.
+      const most = Math.floor(T / (REEL_CLOSEUP_SECONDS + REEL_MIN_OVERVIEW_SECONDS));
+      // Close-ups at REEL_CLOSEUP_SPEED: the overview speed that fills the time.
+      // More close-ups leave less time for overviews, so they go faster.
+      const overviewSpeed = (n) => {
+        const close = n * REEL_CLOSEUP_SECONDS;
+        return (F - REEL_CLOSEUP_SPEED * (close + half)) / (T - close - half);
+      };
+      if (overviewSpeed(most) >= minSpeed) {
+        let n = most;
+        while (n > 1 && overviewSpeed(n) > maxSpeed) n--;
+        return reel(n, REEL_CLOSEUP_SPEED, T - n * REEL_CLOSEUP_SECONDS, overviewSpeed(n));
+      }
+      // Short time range: overviews at the lowest speed, close-ups slowed to fit.
+      const overviewSeconds = T - most * REEL_CLOSEUP_SECONDS;
+      const closeSpeed = (F - minSpeed * (overviewSeconds - half)) / (T - overviewSeconds + half);
+      if (closeSpeed >= REEL_MIN_CLOSEUP_SPEED) return reel(most, closeSpeed, overviewSeconds, minSpeed);
+      // Shorter still: close-ups at their lowest speed, longer, with less overview time.
+      const cs = REEL_MIN_CLOSEUP_SPEED;
+      const shorter = (F - cs * (T + half) + minSpeed * half) / (minSpeed - cs);
+      const n = Math.min(most, Math.floor(shorter / REEL_MIN_OVERVIEW_SECONDS));
+      if (n >= 1) return reel(n, cs, shorter, minSpeed);
+      // Very short: one close-up, as slow as it takes to fill the time (not below 1x).
+      const speed = Math.max(1, F / T);
+      return { slots: [{ closeup: true, seconds: F / speed, speed }], closeupSpeed: speed, overviewSpeed: null, seconds: F / speed };
+    }
+
+    // Run the reel on by dt video seconds and set the playback speed. Returns
+    // true when a new slot starts (time to cut to a new shot).
+    function advanceReel(reel, dt) {
+      let cut = false;
+      reel.elapsed += dt;
+      if (reel.index < 0) {
+        reel.index = 0;
+        reel.elapsed = 0;
+        cut = true;
+      }
+      while (reel.index < reel.slots.length - 1 && reel.elapsed >= reel.slots[reel.index].seconds) {
+        reel.elapsed -= reel.slots[reel.index].seconds;
+        reel.index++;
+        cut = true;
+      }
+      const slot = reel.slots[reel.index];
+      const from = reel.slots[reel.index - 1]?.speed ?? slot.speed;
+      const speed = from + (slot.speed - from) * smootherstep(Math.min(reel.elapsed / REEL_MOVE_SECONDS, 1));
+      viewer.clock.multiplier = speed / EXPORT_FPS;
+      return cut;
+    }
+
+    function updateCinematicCamera() {
+      const dt = cameraDt();
+      const playing = viewer.clock.shouldAnimate;
+      const fov = Math.min(viewer.camera.frustum.fov, viewer.camera.frustum.fovy ?? viewer.camera.frustum.fov);
+
+      if (!camCtl.cine) {
+        camCtl.cine = {
+          random: seededRandom(1), shot: null, sinceOverview: 0, lastPilotId: null, spinSign: 1,
+          fromNowhere: !camCtl.center, // no view handed over by auto or follow
+          target: null, move: null, baseRange: null, basePitch: null, pull: 0,
+          spin: { x: 0, v: 0 },
+          reel: camCtl.reel ? { slots: camCtl.reel.slots, index: -1, elapsed: 0 } : null,
+        };
+      }
+      const cine = camCtl.cine;
+      const moveSeconds = cine.reel ? REEL_MOVE_SECONDS : CINEMATIC_MOVE_SECONDS;
+      const reelCut = cine.reel ? advanceReel(cine.reel, playing ? dt : 0) : false;
+
+      // User zoom (wheel, pinch): fold it into the zoom factor, as auto camera does.
+      if (cine.target) {
+        const actual = Cesium.Cartesian3.magnitude(viewer.camera.position);
+        if (Math.abs(actual - camCtl.range) > 1e-4 * camCtl.range) {
+          camCtl.zoom = Cesium.Math.clamp(
+            camCtl.zoom * actual / camCtl.range, AUTO_CAMERA_MIN_ZOOM, AUTO_CAMERA_MAX_ZOOM);
+          camCtl.range = actual;
+        }
+      }
+
+      // Shots only run on while playing; paused, the camera settles and holds.
+      if (cine.shot && playing) cine.shot.elapsed += dt;
+      let framing = !reelCut && cine.shot && cine.shot.elapsed < cine.shot.duration ? shotFraming(cine.shot, fov) : null;
+      if (!framing) {
+        const shot = nextShot(cine);
+        framing = shot && shotFraming(shot, fov);
+        if (!framing) return;
+        const first = !cine.shot;
+        if (first) {
+          // First shot: start from the current view, or the one handed over
+          // by auto/follow. (Read now, not on activation: with nothing loaded
+          // yet the user may have moved the globe in the meantime.)
+          if (!camCtl.center) {
+            const look = cameraLookPoint();
+            if (!look) return;
+            camCtl.center = look.clone();
+            camCtl.range = Cesium.Cartesian3.distance(viewer.camera.positionWC, look);
+            camCtl.pitch = viewer.camera.pitch;
+          }
+          cine.baseRange = camCtl.range;
+          cine.basePitch = camCtl.pitch;
+        }
+        startShot(cine, shot, framing, fov);
+        if (first && cine.reel) {
+          // A reel opens on its first shot as it is: no glide in, no tracks fading.
+          cine.move.elapsed = moveSeconds;
+          snapTrackFade();
+        }
+        // Show the telemetry while a single pilot is the subject.
+        const subject = shot.kind === 'pilot' ? flights.find(f => f.id === shot.flightId) : null;
+        if (subject) openChart(subject);
+        else if (chart.flight) closeChart();
+      }
+
+      // Follow the subject (lightly smoothed, as auto camera is, so a pilot
+      // landing doesn't jerk the group framing) and ease the offsets away.
+      const alpha = 1 - Math.exp(-dt / AUTO_CAMERA_SMOOTHING_SECONDS);
+      Cesium.Cartesian3.lerp(cine.target.center, framing.center, alpha, cine.target.center);
+      cine.target.logRange += (Math.log(framing.range) - cine.target.logRange) * alpha;
+      const move = cine.move;
+      move.elapsed += dt;
+      const u = Math.min(move.elapsed / moveSeconds, 1);
+      const left = 1 - smootherstep(u);
+
+      const offset = Cesium.Cartesian3.multiplyByScalar(move.center, left, new Cesium.Cartesian3());
+      const center = Cesium.Cartesian3.add(cine.target.center, offset, new Cesium.Cartesian3());
+      // Rise mid-glide on long moves, so the camera sails over the scene
+      // instead of skimming the ground.
+      cine.pull = move.pull * left + move.rise * Math.sin(Math.PI * u) ** 2;
+      cine.baseRange = Math.exp(cine.target.logRange + move.logRange * left);
+      const range = Math.hypot(cine.baseRange * camCtl.zoom, cine.pull);
+      cine.basePitch = cinematicPitch(cine.shot.kind, range, fov) + move.pitch * left;
+
+      springStep(cine.spin, playing ? cine.shot.spin : 0, dt, CINEMATIC_SPIN_SETTLE_SECONDS);
+      const heading = viewer.camera.heading + cine.spin.x * dt;
+      const pitch = terrainSafePitch(center, cine.basePitch, range);
+      camCtl.center = center;
+      camCtl.range = range;
+      camCtl.pitch = cine.basePitch;
+      viewer.camera.lookAt(center, new Cesium.HeadingPitchRange(heading, pitch, range));
     }
 
     function renderList() {
@@ -828,7 +1383,7 @@
     // Depth of field: a tilt-shift 'miniature' effect. A horizontal band through
     // the pilots stays sharp, the image blurs progressively above and below it
     // (separable Gaussian, two passes), and colours are boosted to look toy-like.
-    let tiltShift = null; // { stage, focusY }
+    let tiltShift = null; // { stage, focusY, lastMs }
 
     const TILT_SHIFT_BLUR_GLSL = (horizontal) => `
       uniform sampler2D colorTexture;
@@ -878,8 +1433,10 @@
     function updateTiltShift() {
       if (!tiltShift || !tiltShift.stage.enabled) return;
       let target = 0.5;
-      // Focus on the followed pilot if there is one, otherwise on everyone.
-      const followed = flights.find(f => f.id === followedId);
+      // Focus on the followed pilot (or cinematic camera's) if there is one, otherwise on everyone.
+      const shot = camCtl?.mode === 'cinematic' ? camCtl.cine?.shot : null;
+      const focusId = followedId ?? (shot?.kind === 'pilot' ? shot.flightId : null);
+      const followed = flights.find(f => f.id === focusId);
       const points = followed
         ? [followed.pilot.position.getValue(viewer.clock.currentTime)].filter(Boolean)
         : currentPilotPositions();
@@ -888,7 +1445,10 @@
         const px = viewer.scene.cartesianToCanvasCoordinates(centre);
         if (px) target = Cesium.Math.clamp(1 - px.y / viewer.canvas.clientHeight, 0.15, 0.85);
       }
-      tiltShift.focusY += (target - tiltShift.focusY) * 0.1;
+      const now = appNow();
+      const dt = Cesium.Math.clamp((now - (tiltShift.lastMs ?? now)) / 1000, 0, 0.1);
+      tiltShift.lastMs = now;
+      tiltShift.focusY += (target - tiltShift.focusY) * (1 - Math.exp(-dt / TILT_SHIFT_FOCUS_SECONDS));
     }
 
     // Place labels from OpenStreetMap (via /api/places): white names raised
@@ -969,7 +1529,7 @@
     // the text is readable, so there are never bare stalks.
     function updatePlaceVisibility() {
       if (!showPlaces || !places.length) return;
-      const now = performance.now();
+      const now = appNow();
       if (now - lastPlaceUpdateMs < PLACE_UPDATE_MS) return;
       lastPlaceUpdateMs = now;
 
@@ -1056,11 +1616,21 @@
 
     function openChart(flight) {
       chart.flight = flight;
+      updateChartCaption();
       chart.el.classList.add('open');
       document.body.classList.add('chart-open');
       layoutChart();
       drawChartStatic();
       updateChart(true);
+    }
+
+    // Caption: the pilot's colour, name and glider.
+    function updateChartCaption() {
+      const f = chart.flight;
+      if (!f) return;
+      document.getElementById('fc-swatch').style.background = f.cssColor;
+      document.getElementById('fc-name').textContent = f.name;
+      document.getElementById('fc-glider').textContent = f.props.glider ?? '';
     }
 
     function closeChart() {
@@ -1168,7 +1738,8 @@
       const leftRoom = track.left - pb.left;
       const stacked = leftRoom < 300; // three readout columns need about this much
       const short = window.innerHeight <= 500;
-      const height = stacked ? 146 : (short ? 70 : 90);
+      const caption = short && !stacked ? 20 : 24; // caption line across the top
+      const height = (stacked ? 146 : (short ? 70 : 90)) + caption;
       Object.assign(chart.el.style, {
         left: `${pb.left}px`, width: `${pb.width}px`, height: `${height}px`,
         bottom: `${window.innerHeight - pb.top + 8}px`,
@@ -1179,7 +1750,7 @@
 
       const plotLeft = track.left - pb.left + CHART_SLIDER_THUMB_INSET;
       const plotRight = track.right - pb.left - CHART_SLIDER_THUMB_INSET;
-      const plotTop = stacked ? 72 : 8;
+      const plotTop = caption + (stacked ? 72 : 8);
       const plot = { left: plotLeft, top: plotTop, w: Math.max(10, plotRight - plotLeft), h: height - plotTop - 8 };
       chart.plot = plot;
       for (const c of [chart.staticCanvas, chart.cursorCanvas]) {
@@ -1188,14 +1759,13 @@
         c.height = Math.round(plot.h * devicePixelRatio);
       }
       Object.assign(chart.readouts.style, stacked
-        ? { left: '12px', right: '12px', top: '6px', bottom: 'auto', height: '60px' }
-        : { left: '14px', right: `${pb.width - plotLeft + CHART_SLIDER_THUMB_INSET + 14}px`, top: '0', bottom: '0', height: 'auto' });
+        ? { left: '12px', right: '12px', top: `${caption + 6}px`, bottom: 'auto', height: '60px' }
+        : { left: '14px', right: `${pb.width - plotLeft + CHART_SLIDER_THUMB_INSET + 14}px`, top: `${caption}px`, bottom: '0', height: 'auto' });
       chart.lastCursorX = null;
     }
 
     // Chart scales: x over the clock span (like the slider), y over the flight's altitudes and terrain.
-    function chartScales() {
-      const f = chart.flight, { w, h } = chart.plot;
+    function chartScales(f, w, h) {
       const span = clockSpanSeconds();
       const flightOffset = Cesium.JulianDate.secondsDifference(f.start, viewer.clock.startTime);
       const ground = f.terrainProfile ? f.terrainProfile.ground : [];
@@ -1211,16 +1781,23 @@
 
     function drawChartStatic() {
       if (!chart.flight || !chart.plot) return;
-      const f = chart.flight, { w, h } = chart.plot;
+      const { w, h } = chart.plot;
       const ctx = chart.staticCanvas.getContext('2d');
       ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
       ctx.clearRect(0, 0, w, h);
-      const sc = chart.scales = chartScales();
+      chart.scales = drawAltitudeProfile(ctx, chart.flight, w, h);
+      chart.lastCursorX = null;
+    }
+
+    // Gridlines, terrain and altitude for a flight over the clock span, in a
+    // w x h box (CSS px; the context carries any pixel scaling). Returns the scales.
+    function drawAltitudeProfile(ctx, f, w, h, fontPx = 10) {
+      const sc = chartScales(f, w, h);
 
       // Gridlines at a "nice" altitude step giving 2-4 lines.
       const range = sc.hi - sc.lo;
       const step = [50, 100, 200, 250, 500, 1000, 2000].find(s => range / s <= 4) ?? 5000;
-      ctx.font = '10px system-ui, sans-serif';
+      ctx.font = `${fontPx}px system-ui, sans-serif`;
       ctx.textBaseline = 'bottom';
       for (let v = Math.ceil(sc.lo / step) * step; v < sc.hi; v += step) {
         const y = Math.round(sc.y(v)) + 0.5;
@@ -1258,7 +1835,7 @@
       ctx.lineWidth = 1.5;
       ctx.lineJoin = 'round';
       ctx.stroke();
-      chart.lastCursorX = null;
+      return sc;
     }
 
     function formatReadout(v, unit, signed = false) {
@@ -1276,6 +1853,32 @@
     }
 
     // Per frame: move the cursor line; refresh readouts ~10x a second.
+    // Live readouts for a flight at a time; values are undefined when unknown.
+    function telemetryAt(f, now) {
+      const alt = f.altitudeAt(now);
+      let agl, climb, speed, dist, tFlight;
+      if (alt !== undefined) {
+        tFlight = Cesium.JulianDate.secondsDifference(now, f.start);
+        const ground = groundAt(f.terrainProfile, tFlight);
+        if (f.onGround) agl = 0; // clamped to the terrain
+        else if (ground !== undefined) agl = alt - ground;
+        const alt0 = f.altitudeAt(Cesium.JulianDate.addSeconds(now, -VARIO_WINDOW_SECONDS, new Cesium.JulianDate()));
+        climb = alt0 === undefined ? 0 : (alt - alt0) / VARIO_WINDOW_SECONDS;
+        const p1 = f.sampled.getValue(now);
+        const p0 = f.sampled.getValue(Cesium.JulianDate.addSeconds(now, -CHART_SPEED_WINDOW_S, new Cesium.JulianDate()));
+        if (p0 && p1) {
+          const geodesic = new Cesium.EllipsoidGeodesic(
+            Cesium.Cartographic.fromCartesian(p0), Cesium.Cartographic.fromCartesian(p1));
+          speed = (geodesic.surfaceDistance / CHART_SPEED_WINDOW_S) * 3.6;
+        }
+        if (p1) {
+          f.takeoff ??= Cesium.Cartographic.fromCartesian(f.positions[0]);
+          dist = new Cesium.EllipsoidGeodesic(f.takeoff, Cesium.Cartographic.fromCartesian(p1)).surfaceDistance / 1000;
+        }
+      }
+      return { alt, agl, climb, speed, dist, tFlight };
+    }
+
     function updateChart(force = false) {
       if (!chart.flight || !chart.plot || !chart.scales) return;
       const f = chart.flight, { w, h } = chart.plot;
@@ -1298,29 +1901,10 @@
         }
       }
 
-      const ms = performance.now();
+      const ms = appNow();
       if (!force && ms - chart.lastReadoutMs < CHART_READOUT_MS) return;
       chart.lastReadoutMs = ms;
-      let agl, climb, speed, dist, tFlight;
-      if (alt !== undefined) {
-        tFlight = Cesium.JulianDate.secondsDifference(now, f.start);
-        const ground = groundAt(f.terrainProfile, tFlight);
-        if (f.onGround) agl = 0; // clamped to the terrain
-        else if (ground !== undefined) agl = alt - ground;
-        const alt0 = f.altitudeAt(Cesium.JulianDate.addSeconds(now, -VARIO_WINDOW_SECONDS, new Cesium.JulianDate()));
-        climb = alt0 === undefined ? 0 : (alt - alt0) / VARIO_WINDOW_SECONDS;
-        const p1 = f.sampled.getValue(now);
-        const p0 = f.sampled.getValue(Cesium.JulianDate.addSeconds(now, -CHART_SPEED_WINDOW_S, new Cesium.JulianDate()));
-        if (p0 && p1) {
-          const geodesic = new Cesium.EllipsoidGeodesic(
-            Cesium.Cartographic.fromCartesian(p0), Cesium.Cartographic.fromCartesian(p1));
-          speed = (geodesic.surfaceDistance / CHART_SPEED_WINDOW_S) * 3.6;
-        }
-        if (p1) {
-          f.takeoff ??= Cesium.Cartographic.fromCartesian(f.positions[0]);
-          dist = new Cesium.EllipsoidGeodesic(f.takeoff, Cesium.Cartographic.fromCartesian(p1)).surfaceDistance / 1000;
-        }
-      }
+      const { agl, climb, speed, dist, tFlight } = telemetryAt(f, now);
       document.getElementById('fc-alt').textContent = formatReadout(alt, 'm');
       document.getElementById('fc-agl').textContent = formatReadout(agl, 'm');
       document.getElementById('fc-climb').textContent = formatReadout(climb, 'm/s', true);
@@ -1345,10 +1929,9 @@
       scrubbing: false,
     };
 
-    function formatClockTime(julian, withSeconds = true) {
-      const g = Cesium.JulianDate.toGregorianDate(julian);
-      const pad = (n) => String(n).padStart(2, '0');
-      return `${pad(g.hour)}:${pad(g.minute)}` + (withSeconds ? `:${pad(g.second)}` : '');
+    // "HH:MM" in the clock's time zone.
+    function formatClockTime(julian) {
+      return clockZone.hm.format(Cesium.JulianDate.toDate(julian));
     }
 
     function clockSpanSeconds() {
@@ -1359,17 +1942,19 @@
     function renderPlaybar() {
       if (chart.flight) requestAnimationFrame(() => { layoutChart(); drawChartStatic(); });
       playbar.el.classList.toggle('disabled', !flights.length);
+      document.getElementById('export-video').disabled = !flights.length;
       playbar.el.querySelectorAll('button, select, input').forEach(c => { c.disabled = !flights.length; });
       playbar.coverage.replaceChildren();
       if (!flights.length) {
         playbar.span.textContent = '';
-        playbar.time.textContent = '--:--:-- UTC';
+        playbar.time.textContent = '--:--';
         return;
       }
       const clock = viewer.clock;
       const span = clockSpanSeconds();
       playbar.slider.max = Math.max(1, Math.round(span));
-      playbar.span.textContent = `${formatClockTime(clock.startTime, false)}–${formatClockTime(clock.stopTime, false)}`;
+      playbar.span.textContent = `${formatClockTime(clock.startTime)}–${formatClockTime(clock.stopTime)}`;
+      playbar.time.title = clockZone.name === 'UTC' ? 'UTC' : `Local time at launch (${clockZone.name.replace(/_/g, ' ')})`;
       flights.forEach((f, i) => {
         const from = Cesium.JulianDate.secondsDifference(f.start, clock.startTime) / span;
         const to = Cesium.JulianDate.secondsDifference(f.stop, clock.startTime) / span;
@@ -1393,7 +1978,7 @@
       }
       const secs = Math.round(Cesium.JulianDate.secondsDifference(clock.currentTime, clock.startTime));
       if (!playbar.scrubbing && Number(playbar.slider.value) !== secs) playbar.slider.value = secs;
-      const text = `${formatClockTime(clock.currentTime)} UTC`;
+      const text = formatClockTime(clock.currentTime);
       if (playbar.time.textContent !== text) playbar.time.textContent = text;
       const icon = clock.shouldAnimate ? '❚❚' : '▶';
       if (playbar.play.textContent !== icon) playbar.play.textContent = icon;
@@ -1436,11 +2021,11 @@
     }
 
     document.getElementById('show-tracks').addEventListener('change', (ev) => {
-      showTracks = ev.target.checked;
-      flights.forEach(f => { f.track.show = showTracks; });
+      showTracks = ev.target.checked; // updateTrackFade fades them
     });
 
     document.getElementById('auto-camera').addEventListener('click', () => setAutoCamera(camCtl?.mode !== 'auto'));
+    document.getElementById('cinematic-camera').addEventListener('click', () => setCinematicCamera(camCtl?.mode !== 'cinematic'));
     document.getElementById('place-labels').addEventListener('change', (ev) => {
       showPlaces = ev.target.checked;
       if (showPlaces) {
@@ -1492,15 +2077,467 @@
       }
       err.textContent = errors.join('\n');
       ev.target.value = '';
-      // Auto camera already keeps pilots framed; only fly in for the first load.
-      if (camCtl?.mode !== 'auto' || wasEmpty) flyToAll();
+      // Auto and cinematic cameras already frame the pilots; only fly in for the first load.
+      const framing = camCtl?.mode === 'auto' || camCtl?.mode === 'cinematic';
+      if (!framing || (wasEmpty && camCtl.mode === 'auto')) flyToAll();
       requestPlaces();
     });
+
+    // Video export. Frames are rendered one at a time: the clock and the
+    // animation time (appNow) advance exactly one frame, the render is repeated
+    // until the scenery has loaded, then the map plus overlays (pilot flags,
+    // telemetry, clock, attribution) are composited onto a canvas and encoded
+    // to H.264 MP4 in the browser with Mediabunny (WebCodecs).
+    const EXPORT_FPS = 30;
+    const EXPORT_TILE_WAIT_MS = 5000; // per frame; render anyway after this
+    const EXPORT_LIB = 'https://cdn.jsdelivr.net/npm/mediabunny@1.61.0/+esm';
+    const VIDEO_TELEMETRY_FADE_SECONDS = 0.25;
+    let mediabunny = null;
+    let exportRun = null; // { stop: null | 'save' | 'cancel' } while rendering
+
+    const exportUi = {
+      dialog: document.getElementById('export-dialog'),
+      form: document.getElementById('ex-form'),
+      start: document.getElementById('ex-start'),
+      end: document.getElementById('ex-end'),
+      speed: document.getElementById('ex-speed'),
+      size: document.getElementById('ex-size'),
+      reel: document.getElementById('ex-reel'),
+      summary: document.getElementById('ex-summary'),
+      go: document.getElementById('ex-go'),
+      progress: document.getElementById('export-progress'),
+      preview: document.getElementById('ex-preview'),
+      status: document.getElementById('ex-status'),
+      bar: document.getElementById('ex-bar'),
+    };
+    exportUi.speed.innerHTML = playbar.speed.innerHTML;
+
+    // "HH:MM" (clock time zone) to a time within the clock span: on the span's
+    // start day, or the next day if that's before the start (spans past midnight).
+    function exportTimeFromInput(value) {
+      const [h, m, sec = 0] = value.split(':').map(Number);
+      if (![h, m, sec].every(Number.isFinite)) return null;
+      const { startTime, stopTime } = viewer.clock;
+      const day = localParts(Cesium.JulianDate.toDate(startTime));
+      const wall = Date.UTC(day.year, day.month - 1, day.day, h, m, sec);
+      let ms = wall - zoneOffsetMs(new Date(wall));
+      ms = wall - zoneOffsetMs(new Date(ms)); // again, in case the offset changes in between (DST)
+      let t = Cesium.JulianDate.fromDate(new Date(ms));
+      if (Cesium.JulianDate.lessThan(t, startTime)) {
+        const next = Cesium.JulianDate.addDays(t, 1, new Cesium.JulianDate());
+        if (Cesium.JulianDate.lessThanOrEquals(next, stopTime)) t = next;
+      }
+      if (Cesium.JulianDate.lessThan(t, startTime)) t = startTime.clone();
+      if (Cesium.JulianDate.greaterThan(t, stopTime)) t = stopTime.clone();
+      return t;
+    }
+
+    function exportSettings() {
+      const start = exportTimeFromInput(exportUi.start.value);
+      const end = exportTimeFromInput(exportUi.end.value);
+      const speed = Number(exportUi.speed.value);
+      const height = Number(exportUi.size.value);
+      const span = start && end ? Cesium.JulianDate.secondsDifference(end, start) : 0;
+      const reel = exportUi.reel.checked && span > 0 ? planHighlightsReel(span) : null;
+      const seconds = reel ? reel.seconds : span / speed;
+      return { start, end, speed, reel, height, width: Math.round(height * 16 / 9), frames: Math.round(seconds * EXPORT_FPS) };
+    }
+
+    function updateExportSummary() {
+      const st = exportSettings();
+      exportUi.go.disabled = st.frames < 1;
+      exportUi.speed.disabled = exportUi.reel.checked;
+      const speeds = !st.reel ? ''
+        : ` · close-ups at ${Math.round(st.reel.closeupSpeed)}×`
+          + (st.reel.overviewSpeed ? `, overhead view at ${Math.round(st.reel.overviewSpeed)}× speed` : '');
+      exportUi.summary.textContent = st.frames < 1
+        ? 'The end must be after the start.'
+        : `Video length ${formatDuration(st.frames / EXPORT_FPS)}${speeds} · ${st.frames.toLocaleString()} frames · ${st.width}×${st.height}`;
+    }
+
+    function openExportDialog() {
+      if (!flights.length) return;
+      const clock = viewer.clock;
+      const atEnd = Cesium.JulianDate.greaterThanOrEquals(clock.currentTime, clock.stopTime);
+      exportUi.start.value = formatClockTime(atEnd ? clock.startTime : clock.currentTime);
+      exportUi.end.value = formatClockTime(clock.stopTime);
+      exportUi.speed.value = playbar.speed.value;
+      exportUi.dialog.hidden = false;
+      updateExportSummary();
+    }
+
+    async function loadMediabunny() {
+      mediabunny ??= await import(EXPORT_LIB);
+      return mediabunny;
+    }
+
+    function downloadBlob(blob, name) {
+      const url = URL.createObjectURL(blob);
+      const a = Object.assign(document.createElement('a'), { href: url, download: name });
+      document.body.append(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    }
+
+    async function exportVideo({ start, speed, reel, width, height, frames }) {
+      const clock = viewer.clock;
+      const viewerEl = document.getElementById('viewer');
+      const saved = {
+        style: viewerEl.getAttribute('style'), clockStep: clock.clockStep,
+        camera: camCtl?.mode ?? null, followedId,
+      };
+      const composite = Object.assign(document.createElement('canvas'), { width, height });
+      const ctx = composite.getContext('2d');
+      const previewCtx = exportUi.preview.getContext('2d');
+      const mb = await loadMediabunny();
+      exportRun = { stop: null };
+      exportUi.progress.hidden = false;
+      exportUi.status.textContent = 'Starting…';
+      exportUi.bar.style.width = '0';
+      let output = null;
+      try {
+        clock.shouldAnimate = false;
+        videoTimeMs = performance.now();
+        // Render the map at exactly the video size, behind the progress screen.
+        viewerEl.style.cssText = `position: fixed; left: 0; top: 0; width: ${width}px; height: ${height}px;`;
+        viewer.useDefaultRenderLoop = false;
+        viewer.resize();
+        if (viewer.canvas.width !== width) viewer.resolutionScale = width / viewer.canvas.width;
+        viewer.resize();
+
+        output = new mb.Output({ format: new mb.Mp4OutputFormat({ fastStart: 'in-memory' }), target: new mb.BufferTarget() });
+        const source = new mb.CanvasSource(composite, { codec: 'avc', quality: mb.QUALITY_HIGH, keyFrameInterval: 2 });
+        output.addVideoTrack(source, { frameRate: EXPORT_FPS });
+        await output.start();
+
+        clock.currentTime = start.clone();
+        clock.clockStep = Cesium.ClockStep.TICK_DEPENDENT;
+        clock.multiplier = speed / EXPORT_FPS;
+        if (reel) {
+          // A fresh cinematic director, run by the reel (which sets the speed).
+          setCinematicCamera(true);
+          camCtl.cine = null;
+          camCtl.reel = reel;
+          camCtl.paused = false;
+          clock.multiplier = reel.slots[0].speed / EXPORT_FPS;
+        }
+        const began = performance.now();
+        let done = 0;
+        for (let i = 0; i < frames && !exportRun.stop; i++) {
+          // Advance one frame (the first frame shows the start time itself).
+          videoTimeMs += 1000 / EXPORT_FPS;
+          clock.shouldAnimate = i > 0;
+          viewer.render();
+          // Re-render, frozen in time, until the terrain and imagery have loaded.
+          clock.shouldAnimate = false;
+          const waitFrom = performance.now();
+          while (!viewer.scene.globe.tilesLoaded && performance.now() - waitFrom < EXPORT_TILE_WAIT_MS && !exportRun.stop) {
+            await new Promise(r => setTimeout(r, 10));
+            viewer.render();
+          }
+          // Composite straight after the last render, while its image is still current.
+          drawVideoFrame(ctx, width, height);
+          await source.add(i / EXPORT_FPS, 1 / EXPORT_FPS);
+          done = i + 1;
+
+          previewCtx.drawImage(composite, 0, 0, exportUi.preview.width, exportUi.preview.height);
+          const elapsed = (performance.now() - began) / 1000;
+          const left = elapsed / done * (frames - done);
+          exportUi.status.textContent =
+            `Frame ${done.toLocaleString()} of ${frames.toLocaleString()} · ${formatDuration(elapsed)} elapsed, about ${formatDuration(left)} left`;
+          exportUi.bar.style.width = `${(100 * done / frames).toFixed(1)}%`;
+          if (i % 3 === 0) await new Promise(r => setTimeout(r, 0)); // let the buttons respond
+        }
+
+        if (exportRun.stop === 'cancel' || !done) {
+          await output.cancel();
+        } else {
+          exportUi.status.textContent = 'Finishing the file…';
+          await output.finalize();
+          const g = localParts(Cesium.JulianDate.toDate(start));
+          const pad = (n) => String(n).padStart(2, '0');
+          downloadBlob(new Blob([output.target.buffer], { type: 'video/mp4' }),
+            `tracklogs-${g.year}-${pad(g.month)}-${pad(g.day)}-${pad(g.hour)}${pad(g.minute)}.mp4`);
+        }
+      } catch (e) {
+        console.error('Video export failed:', e);
+        if (output && output.state !== 'finalized' && output.state !== 'canceled') await output.cancel().catch(() => {});
+        document.getElementById('error').textContent = `Video export failed: ${e.message}`;
+      } finally {
+        // Back to normal: map size, render loop, clock and animation timing.
+        if (saved.style === null) viewerEl.removeAttribute('style');
+        else viewerEl.setAttribute('style', saved.style);
+        viewer.resolutionScale = 1;
+        viewer.useDefaultRenderLoop = true;
+        clock.clockStep = saved.clockStep;
+        clock.multiplier = Number(playbar.speed.value);
+        if (reel) {
+          // Back to the camera mode from before; cinematic starts a fresh, normal director.
+          if (camCtl?.mode === 'cinematic') camCtl.reel = camCtl.cine = null;
+          if (saved.camera === 'auto') setAutoCamera(true);
+          else if (saved.camera === 'follow' && flights.some(f => f.id === saved.followedId)) setFollowed(saved.followedId);
+          else if (saved.camera !== 'cinematic') setCinematicCamera(false);
+        }
+        clock.shouldAnimate = false;
+        videoTimeMs = null;
+        const now = performance.now();
+        if (camCtl) camCtl.lastMs = now;
+        lastTrackFadeMs = now;
+        lastPlaceUpdateMs = 0;
+        chart.lastReadoutMs = 0;
+        if (tiltShift) tiltShift.lastMs = null;
+        videoChart.lastMs = null;
+        viewer.resize();
+        exportUi.progress.hidden = true;
+        exportRun = null;
+        updatePlaybar();
+      }
+    }
+
+    // --- Overlays drawn into each video frame (sizes scale with frame height) ---
+
+    function drawVideoFrame(ctx, w, h) {
+      ctx.drawImage(viewer.canvas, 0, 0, w, h);
+      const s = h / 900;
+      drawVideoFlags(ctx, s);
+      const telemetryTop = drawVideoTelemetry(ctx, w, h, s);
+      drawVideoClock(ctx, w, s);
+      drawVideoAttribution(ctx, telemetryTop, s);
+    }
+
+    function roundRect(ctx, x, y, w, h, r) {
+      ctx.beginPath();
+      ctx.roundRect(x, y, w, h, r);
+    }
+
+    function textShadow(ctx, s, on = true) {
+      ctx.shadowColor = on ? 'rgba(0, 0, 0, 0.6)' : 'transparent';
+      ctx.shadowBlur = on ? 2 * s : 0;
+      ctx.shadowOffsetY = on ? 1 * s : 0;
+    }
+
+    // Pilot flags as on screen: a vertical tab in the pilot's colour reading
+    // bottom to top (name, hairline, altitude) on a pointer touching the pilot.
+    function drawVideoFlags(ctx, s) {
+      const fontPx = 12 * s;
+      const thick = 18 * s, padEnd = 6 * s, padText = 2 * s, sepGap = 6 * s, pointer = 8 * s;
+      for (const { flight: f, x, y, alt } of flagPlacements()) {
+        const ink = f.flag.style.getPropertyValue('--ink') || '#000';
+        const altText = `${alt} m`;
+        ctx.font = `600 ${fontPx}px system-ui, sans-serif`;
+        const nameW = ctx.measureText(f.name).width;
+        ctx.font = `400 ${fontPx}px system-ui, sans-serif`;
+        const altW = ctx.measureText(altText).width;
+        const len = padEnd + padText + nameW + padText + sepGap + 1 * s + sepGap + padText + altW + padText + padEnd;
+
+        ctx.save();
+        ctx.translate(x, y);
+        textShadow(ctx, s);
+        ctx.fillStyle = f.cssColor;
+        ctx.beginPath(); // pointer
+        ctx.moveTo(0, 0); ctx.lineTo(-6 * s, -pointer); ctx.lineTo(6 * s, -pointer); ctx.closePath();
+        ctx.fill();
+        ctx.translate(0, -pointer);
+        ctx.rotate(-Math.PI / 2); // +x now runs up the screen
+        roundRect(ctx, 0, -thick / 2, len, thick, 3 * s);
+        ctx.fill();
+        textShadow(ctx, s, false);
+        ctx.fillStyle = ink;
+        ctx.textBaseline = 'middle';
+        let at = padEnd + padText;
+        ctx.font = `600 ${fontPx}px system-ui, sans-serif`;
+        ctx.fillText(f.name, at, 0);
+        at += nameW + padText + sepGap;
+        ctx.globalAlpha = 0.7;
+        ctx.fillRect(at, -thick / 2, 1 * s, thick);
+        ctx.globalAlpha = 1;
+        at += 1 * s + sepGap + padText;
+        ctx.font = `400 ${fontPx}px system-ui, sans-serif`;
+        ctx.fillText(altText, at, 0);
+        ctx.restore();
+      }
+    }
+
+    // Telemetry panel along the bottom while a pilot is followed (or in a
+    // cinematic pilot shot), fading in and out. Returns the panel's top edge
+    // (the frame height when hidden), so the attribution can sit above it.
+    const videoChart = { flight: null, alpha: 0, lastMs: null, profile: null, profileKey: null, readouts: null, readoutMs: -Infinity };
+
+    function drawVideoTelemetry(ctx, w, h, s) {
+      const now = appNow();
+      const dt = videoChart.lastMs === null ? 0 : Math.max(0, (now - videoChart.lastMs) / 1000);
+      videoChart.lastMs = now;
+      if (chart.flight && chart.flight !== videoChart.flight) {
+        videoChart.flight = chart.flight;
+        videoChart.readoutMs = -Infinity;
+      }
+      const step = dt / VIDEO_TELEMETRY_FADE_SECONDS;
+      videoChart.alpha = chart.flight ? Math.min(1, videoChart.alpha + step) : Math.max(0, videoChart.alpha - step);
+      const f = videoChart.flight;
+      if (!videoChart.alpha || !f || !flights.includes(f)) return h;
+
+      const margin = 16 * s, pad = 14 * s;
+      const panelH = 132 * s, panelW = w - 2 * margin;
+      const x0 = margin, y0 = h - margin - panelH;
+      const readW = Math.min(440 * s, panelW * 0.4);
+      const plot = { x: x0 + pad + readW + pad, y: y0 + 38 * s };
+      plot.w = x0 + panelW - pad - plot.x;
+      plot.h = y0 + panelH - 12 * s - plot.y;
+
+      ctx.save();
+      ctx.globalAlpha = videoChart.alpha;
+      ctx.fillStyle = 'rgba(30, 30, 34, 0.5)';
+      roundRect(ctx, x0, y0, panelW, panelH, 8 * s);
+      ctx.fill();
+
+      // Caption: colour swatch, name, glider.
+      textShadow(ctx, s);
+      ctx.textBaseline = 'middle';
+      const capY = y0 + 20 * s;
+      ctx.fillStyle = f.cssColor;
+      ctx.fillRect(x0 + pad, capY - 5 * s, 10 * s, 10 * s);
+      ctx.font = `600 ${15 * s}px system-ui, sans-serif`;
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
+      ctx.fillText(f.name, x0 + pad + 17 * s, capY);
+      const nameW = ctx.measureText(f.name).width;
+      ctx.font = `400 ${15 * s}px system-ui, sans-serif`;
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.65)';
+      ctx.fillText(f.props.glider ?? '', x0 + pad + 17 * s + nameW + 8 * s, capY);
+
+      // Readouts, refreshed at the same rate as on screen so digits don't flicker.
+      if (now - videoChart.readoutMs >= CHART_READOUT_MS) {
+        videoChart.readoutMs = now;
+        const t = telemetryAt(f, viewer.clock.currentTime);
+        videoChart.readouts = [
+          [formatReadout(t.alt, 'm'), 'Altitude'], [formatReadout(t.agl, 'm'), 'Above ground'],
+          [formatReadout(t.climb, 'm/s', true), 'Climb'], [formatReadout(t.speed, 'km/h'), 'Ground speed'],
+          [t.dist === undefined ? '–' : `${t.dist.toFixed(1)} km`, 'From start'], [formatDuration(t.tFlight), 'Elapsed time'],
+        ];
+      }
+      videoChart.readouts.forEach(([value, label], i) => {
+        const cx = x0 + pad + (i % 3) * (readW / 3), cy = y0 + (i < 3 ? 56 : 98) * s;
+        ctx.textBaseline = 'alphabetic';
+        ctx.font = `600 ${19 * s}px system-ui, sans-serif`;
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
+        ctx.fillText(value, cx, cy);
+        ctx.font = `400 ${12 * s}px system-ui, sans-serif`;
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.65)';
+        ctx.fillText(label, cx, cy + 15 * s);
+      });
+      textShadow(ctx, s, false);
+
+      // Altitude profile (cached) and the time cursor.
+      const span = clockSpanSeconds();
+      const key = `${f.id}|${plot.w}|${plot.h}|${span}`;
+      if (videoChart.profileKey !== key) {
+        const c = Object.assign(document.createElement('canvas'), { width: Math.round(plot.w), height: Math.round(plot.h) });
+        const pctx = c.getContext('2d');
+        pctx.setTransform(s, 0, 0, s, 0, 0);
+        videoChart.profile = { canvas: c, scales: drawAltitudeProfile(pctx, f, plot.w / s, plot.h / s) };
+        videoChart.profileKey = key;
+      }
+      ctx.drawImage(videoChart.profile.canvas, plot.x, plot.y);
+      const time = viewer.clock.currentTime;
+      const cx = plot.x + (Cesium.JulianDate.secondsDifference(time, viewer.clock.startTime) / span) * plot.w;
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+      ctx.lineWidth = 1.5 * s;
+      ctx.beginPath(); ctx.moveTo(cx, plot.y); ctx.lineTo(cx, plot.y + plot.h); ctx.stroke();
+      const alt = f.altitudeAt(time);
+      if (alt !== undefined) {
+        ctx.fillStyle = '#fff';
+        ctx.beginPath(); ctx.arc(cx, plot.y + videoChart.profile.scales.y(alt) * s, 3.5 * s, 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.restore();
+      return y0;
+    }
+
+    function drawVideoClock(ctx, w, s) {
+      const text = formatClockTime(viewer.clock.currentTime);
+      ctx.save();
+      ctx.font = `600 ${17 * s}px system-ui, sans-serif`;
+      ctx.textBaseline = 'middle';
+      const tw = ctx.measureText(text).width, padX = 10 * s, boxH = 30 * s, margin = 16 * s;
+      ctx.fillStyle = 'rgba(30, 30, 34, 0.5)';
+      roundRect(ctx, w - margin - tw - 2 * padX, margin, tw + 2 * padX, boxH, 6 * s);
+      ctx.fill();
+      textShadow(ctx, s);
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
+      ctx.fillText(text, w - margin - padX - tw, margin + boxH / 2);
+      ctx.restore();
+    }
+
+    // Map credits, required by the providers' terms: MapTiler's logo and
+    // copyright, Cesium ion's, or OpenStreetMap's.
+    const MAP_CREDITS = {
+      maptiler: '© MapTiler © OpenStreetMap contributors',
+      ion: 'Cesium ion · Imagery © Microsoft Bing, Earthstar Geographics',
+      osm: '© OpenStreetMap contributors',
+    };
+    const maptilerLogo = Object.assign(new Image(), { crossOrigin: 'anonymous' });
+    let maptilerLogoReady = false;
+    maptilerLogo.onload = () => { maptilerLogoReady = true; };
+
+    function drawVideoAttribution(ctx, bottom, s) {
+      if (mapProvider === 'maptiler' && !maptilerLogo.src) maptilerLogo.src = 'https://api.maptiler.com/resources/logo.svg';
+      const text = MAP_CREDITS[mapProvider];
+      const margin = 16 * s, padX = 8 * s, boxH = 26 * s;
+      const showLogo = mapProvider === 'maptiler' && maptilerLogoReady;
+      const lh = 16 * s, lw = showLogo ? lh * ((maptilerLogo.naturalWidth / maptilerLogo.naturalHeight) || 4) : 0;
+      ctx.save();
+      ctx.font = `400 ${12 * s}px system-ui, sans-serif`;
+      const boxW = padX + (showLogo ? lw + 8 * s : 0) + ctx.measureText(text).width + padX;
+      const top = bottom - 10 * s - boxH;
+      // Dark backing so the credits stay readable over light map imagery.
+      ctx.fillStyle = 'rgba(30, 30, 34, 0.5)';
+      roundRect(ctx, margin, top, boxW, boxH, 6 * s);
+      ctx.fill();
+      let x = margin + padX;
+      if (showLogo) {
+        ctx.drawImage(maptilerLogo, x, top + (boxH - lh) / 2, lw, lh);
+        x += lw + 8 * s;
+      }
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+      ctx.fillText(text, x, top + boxH / 2);
+      ctx.restore();
+    }
+
+    document.getElementById('export-video').addEventListener('click', openExportDialog);
+    for (const el of [exportUi.start, exportUi.end, exportUi.speed, exportUi.size, exportUi.reel]) {
+      el.addEventListener('input', updateExportSummary);
+    }
+    document.getElementById('ex-cancel').addEventListener('click', () => { exportUi.dialog.hidden = true; });
+    exportUi.form.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const st = exportSettings();
+      if (st.frames < 1) return;
+      exportUi.go.disabled = true;
+      exportUi.summary.textContent = 'Checking video support…';
+      let supported = false;
+      try {
+        const mb = await loadMediabunny();
+        supported = 'VideoEncoder' in window && await mb.canEncodeVideo('avc', { width: st.width, height: st.height });
+      } catch (e) {
+        console.error(e);
+      }
+      if (!supported) {
+        exportUi.summary.textContent = "This browser can't encode MP4 video. Try a recent Chrome, Edge, Safari or Firefox.";
+        exportUi.go.disabled = false;
+        return;
+      }
+      exportUi.dialog.hidden = true;
+      exportUi.go.disabled = false;
+      await exportVideo(st);
+    });
+    document.getElementById('ex-abort').addEventListener('click', () => { if (exportRun) exportRun.stop = 'cancel'; });
+    document.getElementById('ex-stop').addEventListener('click', () => { if (exportRun) exportRun.stop = 'save'; });
 
     (async () => {
       viewer = await createViewer();
       viewer.clock.multiplier = Number(playbar.speed.value);
       viewer.clock.onTick.addEventListener(updateAutoCamera);
+      viewer.clock.onTick.addEventListener(updateTrackFade);
       viewer.clock.onTick.addEventListener(updatePlaybar);
       viewer.clock.onTick.addEventListener(() => updateChart());
       tiltShift = createTiltShift();
@@ -1510,7 +2547,7 @@
       placeLineMaterial = Cesium.Material.fromType('Color', { color: Cesium.Color.WHITE.withAlpha(0.5) });
       viewer.clock.onTick.addEventListener(updatePlaceVisibility);
       viewer.scene.postRender.addEventListener(updateFlags);
-      setAutoCamera(true);
+      setCinematicCamera(true);
       renderList();
     })();
   </script>
