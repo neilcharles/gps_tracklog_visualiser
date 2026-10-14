@@ -338,16 +338,28 @@
         shouldAnimate: false,
       };
       // MapTiler is preferred: its free plan suits a public site better than ion's.
-      if (cfg.maptiler_key) {
-        const key = encodeURIComponent(cfg.maptiler_key);
+      let notice = 'No map key set: showing flat map without terrain.';
+      // Without the try, a rejected key (e.g. this site missing from the key's
+      // allowed origins) leaves no viewer at all.
+      let maptilerTerrain;
+      const key = cfg.maptiler_key && encodeURIComponent(cfg.maptiler_key);
+      if (key) {
+        try {
+          maptilerTerrain = await Cesium.CesiumTerrainProvider.fromUrl(
+            `https://api.maptiler.com/tiles/terrain-quantized-mesh-v2/?key=${key}`, { requestVertexNormals: true });
+        } catch (e) {
+          console.error('MapTiler terrain failed to load:', e);
+          notice = 'MapTiler rejected the key (is this site in its allowed origins?): showing flat map without terrain.';
+        }
+      }
+      if (maptilerTerrain) {
         hasTerrain = true;
         // CesiumJS shows the "Cesium ion" logo by default; nothing here comes
         // from ion, so drop it (must be set before the viewer is created).
         Cesium.CreditDisplay.cesiumCredit = undefined;
         const viewer = new Cesium.Viewer('viewer', {
           ...common,
-          terrainProvider: await Cesium.CesiumTerrainProvider.fromUrl(
-            `https://api.maptiler.com/tiles/terrain-quantized-mesh-v2/?key=${key}`, { requestVertexNormals: true }),
+          terrainProvider: maptilerTerrain,
           baseLayer: new Cesium.ImageryLayer(new Cesium.UrlTemplateImageryProvider({
             url: `https://api.maptiler.com/maps/satellite-v4/{z}/{x}/{y}.jpg?key=${key}`,
             minimumLevel: 0, maximumLevel: 20, tileWidth: 512, tileHeight: 512,
@@ -376,8 +388,7 @@
           terrainProvider: await Cesium.createWorldTerrainAsync(),
         });
       }
-      document.getElementById('notice').textContent =
-        'No CESIUM_ION_TOKEN set: showing flat map without terrain.';
+      document.getElementById('notice').textContent = notice;
       return new Cesium.Viewer('viewer', {
         ...common,
         baseLayer: new Cesium.ImageryLayer(
