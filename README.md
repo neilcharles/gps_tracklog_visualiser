@@ -3,6 +3,8 @@
 View IGC and GPX tracklogs (paragliding flights, hike-and-fly, walks, rides) in 3D over
 real terrain and satellite imagery, in your browser.
 
+![Four paragliding tracklogs replayed over MapTiler terrain and satellite imagery](screenshot.jpg)
+
 ## Quick start
 
 You need **Python 3.10 or newer** ([python.org](https://www.python.org/downloads/); on
