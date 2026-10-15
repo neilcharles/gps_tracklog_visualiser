@@ -91,7 +91,17 @@
       padding: 2px 10px; margin-bottom: 12px;
     }
     #view-block label { display: flex; align-items: center; gap: 10px; cursor: pointer; padding: 6px 0; }
-    #view-block label + label { border-top: 1px solid #444; }
+    #view-block label + label, #map-switch { border-top: 1px solid #444; }
+    #map-switch:not([hidden]) { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 0; }
+    #map-switch .segmented { display: flex; flex: none; border: 1px solid #555; border-radius: 6px; overflow: hidden; }
+    #map-switch .segmented button {
+      font: inherit; font-size: 12.5px; color: #ccc; background: transparent; border: none; border-radius: 0;
+      margin: 0; padding: 4px 9px; cursor: pointer;
+    }
+    #map-switch .segmented button + button { border-left: 1px solid #555; }
+    #map-switch .segmented button:hover:not(.active) { background: rgba(255, 255, 255, .1); }
+    #map-switch .segmented button.active { background: #3b82f6; color: #fff; cursor: default; }
+    #map-switch .segmented button:disabled:not(.active) { opacity: .5; cursor: wait; }
     #view-block input { width: 18px; height: 18px; margin: 0; cursor: pointer; flex: none; }
     #view-block strong { display: block; }
     #view-block span { color: #aaa; font-size: 12px; }
@@ -248,6 +258,13 @@
         <input type="checkbox" id="show-trails" checked>
         <div><strong>Recent trails</strong><span>Highlight the last 5 minutes of tracks</span></div>
       </label>
+      <div id="map-switch" hidden>
+        <div><strong>Map</strong><span>Terrain and imagery</span></div>
+        <div class="segmented" role="radiogroup" aria-label="Map">
+          <button type="button" data-provider="maptiler" role="radio">MapTiler</button>
+          <button type="button" data-provider="ion" role="radio">Cesium ion</button>
+        </div>
+      </div>
     </div>
     <h1>Tracklogs</h1>
     <button id="add-files">Add tracklogs…</button>
@@ -351,6 +368,10 @@
     const AUTO_CAMERA_GROUND_CLEARANCE = 150; // metres
     const AUTO_CAMERA_MIN_ZOOM = 0.05; // limits on the user's zoom, relative to the automatic range
     const AUTO_CAMERA_MAX_ZOOM = 20;
+    // The user's tilt (vertical drag) holds while they drag, then eases back
+    // to the automatic pitch with this time constant.
+    const USER_PITCH_RETURN_SECONDS = 4;
+    const USER_PITCH_LIMITS_DEG = [-89, -2]; // steepest and shallowest pitch the user can tilt to
     // Follow: aim at a weighted average of the last FOLLOW_WINDOW_S of the
     // pilot's track (sampled every FOLLOW_SAMPLE_STEP_S), so circling holds
     // steady on the thermal.
@@ -448,8 +469,97 @@
     let lastPlaceUpdateMs = 0;
     const placeIds = new Set();
 
+    // Map providers: terrain plus imagery, credits and tile settings.
+    // MapTiler is preferred: its free plan suits a public site better than
+    // ion's. When both keys are set and the app runs locally, a switch in the
+    // panel swaps between them (see setMapProvider).
+    let mapCfg = null; // /api/config
+    const mapLoaded = {}; // provider name -> loaded map, so switching back is instant
+    const CESIUM_ION_CREDIT = Cesium.CreditDisplay.cesiumCredit; // the "Cesium ion" logo
+    const MAPTILER_CREDIT = new Cesium.Credit(
+      '<a href="https://www.maptiler.com/" target="_blank" rel="noopener">'
+      + '<img src="https://api.maptiler.com/resources/logo.svg" alt="MapTiler" style="height:18px;vertical-align:middle"></a> '
+      + '<a href="https://www.maptiler.com/copyright/" target="_blank" rel="noopener">&copy; MapTiler</a> '
+      + '<a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">&copy; OpenStreetMap contributors</a>',
+      true);
+
+    async function loadMap(name) {
+      if (mapLoaded[name]) return mapLoaded[name];
+      let map;
+      if (name === 'maptiler') {
+        const key = encodeURIComponent(mapCfg.maptiler_key);
+        map = {
+          terrain: await Cesium.CesiumTerrainProvider.fromUrl(
+            `https://api.maptiler.com/tiles/terrain-quantized-mesh-v2/?key=${key}`, { requestVertexNormals: true }),
+          imagery: () => new Cesium.ImageryLayer(new Cesium.UrlTemplateImageryProvider({
+            url: `https://api.maptiler.com/maps/satellite-v4/{z}/{x}/{y}.jpg?key=${key}`,
+            minimumLevel: 0, maximumLevel: 20, tileWidth: 512, tileHeight: 512,
+          })),
+          // Attribution required by MapTiler's terms (logo + data credits).
+          // CesiumJS shows the "Cesium ion" logo by default; nothing here
+          // comes from ion, so it is dropped.
+          credit: MAPTILER_CREDIT, ionCredit: false,
+          // Fewer tile requests to stay within MapTiler's free quota (server-side
+          // caching isn't allowed by its terms): accept 4 px of error before refining
+          // (default 2, about one zoom level coarser) and keep more tiles in memory so
+          // panning back or replaying doesn't refetch them.
+          screenSpaceError: 4, tileCacheSize: 500,
+        };
+      } else {
+        Cesium.Ion.defaultAccessToken = mapCfg.cesium_ion_token;
+        map = {
+          terrain: await Cesium.createWorldTerrainAsync(),
+          imagery: () => Cesium.ImageryLayer.fromWorldImagery(),
+          credit: null, ionCredit: true, screenSpaceError: 2, tileCacheSize: 100,
+        };
+      }
+      return (mapLoaded[name] = map);
+    }
+
+    // Settings and credits that must be in place before the viewer exists.
+    function prepareMap(map) {
+      Cesium.CreditDisplay.cesiumCredit = map.ionCredit ? CESIUM_ION_CREDIT : undefined;
+    }
+
+    function applyMap(name, map) {
+      mapProvider = name;
+      hasTerrain = true;
+      const globe = viewer.scene.globe;
+      globe.maximumScreenSpaceError = map.screenSpaceError;
+      globe.tileCacheSize = map.tileCacheSize;
+      for (const m of Object.values(mapLoaded)) if (m.credit) viewer.creditDisplay.removeStaticCredit(m.credit);
+      if (map.credit) viewer.creditDisplay.addStaticCredit(map.credit);
+      document.querySelectorAll('#map-switch button').forEach(b => {
+        b.classList.toggle('active', b.dataset.provider === name);
+        b.setAttribute('aria-checked', String(b.dataset.provider === name));
+      });
+    }
+
+    // Swap terrain and imagery in place, keeping the loaded tracklogs. Their
+    // altitudes were aligned to the old terrain at launch; both providers'
+    // terrain is close enough that they still sit right.
+    async function setMapProvider(name) {
+      if (name === mapProvider) return;
+      const buttons = document.querySelectorAll('#map-switch button');
+      buttons.forEach(b => { b.disabled = true; });
+      try {
+        const map = await loadMap(name);
+        prepareMap(map);
+        viewer.terrainProvider = map.terrain;
+        viewer.imageryLayers.removeAll();
+        viewer.imageryLayers.add(map.imagery());
+        applyMap(name, map);
+        try { localStorage.setItem('mapProvider', name); } catch { /* storage unavailable */ }
+      } catch (e) {
+        console.error(`Couldn't switch the map to ${name}:`, e);
+        document.getElementById('error').textContent = `Couldn't load the ${name === 'ion' ? 'Cesium ion' : 'MapTiler'} map: ${e.message}`;
+      } finally {
+        buttons.forEach(b => { b.disabled = false; });
+      }
+    }
+
     async function createViewer() {
-      const cfg = await (await fetch('/api/config')).json();
+      mapCfg = await (await fetch('/api/config')).json();
       const common = {
         geocoder: false,
         homeButton: false,
@@ -461,58 +571,33 @@
         fullscreenButton: false,
         shouldAnimate: false,
       };
-      // MapTiler is preferred: its free plan suits a public site better than ion's.
+      const local = ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
+      const canSwitch = local && mapCfg.maptiler_key && mapCfg.cesium_ion_token;
+      const order = [mapCfg.maptiler_key && 'maptiler', mapCfg.cesium_ion_token && 'ion'].filter(Boolean);
+      if (canSwitch) {
+        let saved = null;
+        try { saved = localStorage.getItem('mapProvider'); } catch { /* storage unavailable */ }
+        if (saved === 'ion') order.reverse();
+      }
       let notice = 'No map key set: showing flat map without terrain.';
-      // Without the try, a rejected key (e.g. this site missing from the key's
-      // allowed origins) leaves no viewer at all.
-      let maptilerTerrain;
-      const key = cfg.maptiler_key && encodeURIComponent(cfg.maptiler_key);
-      if (key) {
+      for (const name of order) {
+        // Without the try, a rejected key (e.g. this site missing from the
+        // key's allowed origins) leaves no viewer at all.
+        let map;
         try {
-          maptilerTerrain = await Cesium.CesiumTerrainProvider.fromUrl(
-            `https://api.maptiler.com/tiles/terrain-quantized-mesh-v2/?key=${key}`, { requestVertexNormals: true });
+          map = await loadMap(name);
         } catch (e) {
-          console.error('MapTiler terrain failed to load:', e);
-          notice = 'MapTiler rejected the key (is this site in its allowed origins?): showing flat map without terrain.';
+          console.error(`${name} terrain failed to load:`, e);
+          if (name === 'maptiler') {
+            notice = 'MapTiler rejected the key (is this site in its allowed origins?): showing flat map without terrain.';
+          }
+          continue;
         }
-      }
-      if (maptilerTerrain) {
-        hasTerrain = true;
-        mapProvider = 'maptiler';
-        // CesiumJS shows the "Cesium ion" logo by default; nothing here comes
-        // from ion, so drop it (must be set before the viewer is created).
-        Cesium.CreditDisplay.cesiumCredit = undefined;
-        const viewer = new Cesium.Viewer('viewer', {
-          ...common,
-          terrainProvider: maptilerTerrain,
-          baseLayer: new Cesium.ImageryLayer(new Cesium.UrlTemplateImageryProvider({
-            url: `https://api.maptiler.com/maps/satellite-v4/{z}/{x}/{y}.jpg?key=${key}`,
-            minimumLevel: 0, maximumLevel: 20, tileWidth: 512, tileHeight: 512,
-          })),
-        });
-        // Attribution required by MapTiler's terms (logo + data credits).
-        viewer.creditDisplay.addStaticCredit(new Cesium.Credit(
-          '<a href="https://www.maptiler.com/" target="_blank" rel="noopener">'
-          + '<img src="https://api.maptiler.com/resources/logo.svg" alt="MapTiler" style="height:18px;vertical-align:middle"></a> '
-          + '<a href="https://www.maptiler.com/copyright/" target="_blank" rel="noopener">&copy; MapTiler</a> '
-          + '<a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">&copy; OpenStreetMap contributors</a>',
-          true));
-        // Fewer tile requests to stay within MapTiler's free quota (server-side
-        // caching isn't allowed by its terms): accept 4 px of error before refining
-        // (default 2, about one zoom level coarser) and keep more tiles in memory so
-        // panning back or replaying doesn't refetch them.
-        viewer.scene.globe.maximumScreenSpaceError = 4;
-        viewer.scene.globe.tileCacheSize = 500;
+        prepareMap(map);
+        viewer = new Cesium.Viewer('viewer', { ...common, terrainProvider: map.terrain, baseLayer: map.imagery() });
+        applyMap(name, map);
+        if (canSwitch) document.getElementById('map-switch').hidden = false;
         return viewer;
-      }
-      if (cfg.cesium_ion_token) {
-        Cesium.Ion.defaultAccessToken = cfg.cesium_ion_token;
-        hasTerrain = true;
-        mapProvider = 'ion';
-        return new Cesium.Viewer('viewer', {
-          ...common,
-          terrainProvider: await Cesium.createWorldTerrainAsync(),
-        });
       }
       document.getElementById('notice').textContent = notice;
       return new Cesium.Viewer('viewer', {
@@ -867,7 +952,8 @@
     // a set of target points, easing towards them so the view pans and zooms
     // smoothly. The view stays low and oblique when the points are close
     // together and tilts towards top-down as it pulls out to fit a wider
-    // spread. The user can still swing the heading round, and zooming scales
+    // spread. The user can still swing the heading round, tilt the view up or
+    // down (easing back to the automatic pitch once they let go), and zooming scales
     // the automatic range by a factor that sticks until the user zooms again
     // or clicks Auto camera / Follow again. Pitch is automatic.
     //   auto:   every pilot's current position.
@@ -889,6 +975,8 @@
       camCtl = {
         mode, center: prev?.center?.clone() ?? null, range: prev?.range ?? null, pitch: prev?.pitch ?? null,
         zoom: 1, // the user's zoom, as a multiple of the automatic range; reset by the buttons
+        userPitch: 0, // the user's tilt, added to the automatic pitch; eases back to 0
+        setPitch: null, // the pitch set last frame, to spot the user's tilt
         lastMs: appNow(), paused: false,
       };
       document.getElementById('auto-camera').classList.toggle('active', mode === 'auto');
@@ -1012,6 +1100,28 @@
       return dt;
     }
 
+    // Pointer held on the map: the user may be dragging the view.
+    let mapPointerDown = false;
+    document.getElementById('viewer').addEventListener('pointerdown', () => { mapPointerDown = true; });
+    for (const type of ['pointerup', 'pointercancel']) window.addEventListener(type, () => { mapPointerDown = false; });
+
+    // Point the camera at `center` with the automatic pitch plus the user's
+    // tilt. The camera is still in last frame's lookAt frame, so if its pitch
+    // no longer matches what was set, the user tilted it (drag or its
+    // inertia): add that to the tilt, which eases back once they let go.
+    function lookAtWithUserPitch(center, heading, autoPitch, range, dt) {
+      if (camCtl.setPitch !== null) {
+        const tilted = viewer.camera.pitch - camCtl.setPitch;
+        if (Math.abs(tilted) > 1e-4) camCtl.userPitch += tilted;
+      }
+      if (!mapPointerDown) camCtl.userPitch *= Math.exp(-dt / USER_PITCH_RETURN_SECONDS);
+      const [lo, hi] = USER_PITCH_LIMITS_DEG.map(Cesium.Math.toRadians);
+      camCtl.userPitch = Cesium.Math.clamp(autoPitch + camCtl.userPitch, lo, hi) - autoPitch;
+      const pitch = terrainSafePitch(center, autoPitch + camCtl.userPitch, range);
+      viewer.camera.lookAt(center, new Cesium.HeadingPitchRange(heading, pitch, range));
+      camCtl.setPitch = viewer.camera.pitch;
+    }
+
     function updateAutoCamera() {
       if (!camCtl || camCtl.paused) return;
       if (camCtl.mode === 'cinematic') {
@@ -1028,7 +1138,8 @@
       if (follow) targetRange = Math.max(targetRange, FOLLOW_MIN_RANGE);
       targetRange *= camCtl.zoom;
 
-      const alpha = 1 - Math.exp(-cameraDt() / AUTO_CAMERA_SMOOTHING_SECONDS);
+      const dt = cameraDt();
+      const alpha = 1 - Math.exp(-dt / AUTO_CAMERA_SMOOTHING_SECONDS);
       if (!camCtl.center) {
         // Start from wherever the camera is looking now, so taking control eases in.
         const look = cameraLookPoint() ?? sphere.center;
@@ -1054,9 +1165,7 @@
         camCtl.pitch += (targetPitch - camCtl.pitch) * alpha;
       }
 
-      const heading = viewer.camera.heading;
-      const pitch = terrainSafePitch(camCtl.center, camCtl.pitch, camCtl.range);
-      viewer.camera.lookAt(camCtl.center, new Cesium.HeadingPitchRange(heading, pitch, camCtl.range));
+      lookAtWithUserPitch(camCtl.center, viewer.camera.heading, camCtl.pitch, camCtl.range, dt);
     }
 
     // Cinematic camera. A shot frames everyone, one pilot or the whole tracks
@@ -1331,11 +1440,10 @@
 
       springStep(cine.spin, playing ? cine.shot.spin : 0, dt, CINEMATIC_SPIN_SETTLE_SECONDS);
       const heading = viewer.camera.heading + cine.spin.x * dt;
-      const pitch = terrainSafePitch(center, cine.basePitch, range);
       camCtl.center = center;
       camCtl.range = range;
       camCtl.pitch = cine.basePitch;
-      viewer.camera.lookAt(center, new Cesium.HeadingPitchRange(heading, pitch, range));
+      lookAtWithUserPitch(center, heading, cine.basePitch, range, dt);
     }
 
     function renderList() {
@@ -2223,6 +2331,7 @@
           setCinematicCamera(true);
           camCtl.cine = null;
           camCtl.reel = reel;
+          camCtl.userPitch = 0;
           camCtl.paused = false;
           clock.multiplier = reel.slots[0].speed / EXPORT_FPS;
         }
@@ -2541,6 +2650,9 @@
       await exportVideo(st);
     });
     document.getElementById('ex-abort').addEventListener('click', () => { if (exportRun) exportRun.stop = 'cancel'; });
+    document.querySelectorAll('#map-switch button').forEach(b => {
+      b.addEventListener('click', () => setMapProvider(b.dataset.provider));
+    });
     document.getElementById('ex-stop').addEventListener('click', () => { if (exportRun) exportRun.stop = 'save'; });
 
     (async () => {
