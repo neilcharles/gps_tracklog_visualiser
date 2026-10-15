@@ -372,6 +372,16 @@
     // to the automatic pitch with this time constant.
     const USER_PITCH_RETURN_SECONDS = 4;
     const USER_PITCH_LIMITS_DEG = [-89, -2]; // steepest and shallowest pitch the user can tilt to
+    // Line of sight: with a single subject pilot the camera steepens until
+    // terrain no longer hides them (or their recent trail), quickly when they
+    // disappear and relaxing slowly once they are clear again.
+    const LOS_SAMPLES = 24; // terrain samples along each sight line
+    const LOS_MARGIN_M = 30; // metres the sight line must clear the terrain by
+    const LOS_PITCH_RESOLUTION_DEG = 2;
+    const LOS_TRAIL_S = 15; // also keep the trail this far back in view
+    const LOS_RISE_SECONDS = 0.5;
+    const LOS_RELAX_SECONDS = 3;
+    const FLAG_HIDDEN_OPACITY = 0.35; // flags of pilots hidden behind terrain
     // Follow: aim at a weighted average of the last FOLLOW_WINDOW_S of the
     // pilot's track (sampled every FOLLOW_SAMPLE_STEP_S), so circling holds
     // steady on the thermal.
@@ -671,6 +681,9 @@
           positions: positions.filter((_, i) => i % TRACK_DECIMATION === 0),
           width: 2,
           material: trackMaterial,
+          // Drape ground tracks on the rendered terrain: coarser tiles than the
+          // ones sampled would otherwise poke through them.
+          clampToGround: onGround,
         },
       });
       const entities = [track];
@@ -698,7 +711,7 @@
 
       const flight = {
         id: nextId++, name, props: p, cssColor, start, stop, positions, pilot, track, entities, bounds,
-        flag, flagAlt: flag.querySelector('.flag-alt'), shownAlt: null,
+        flag, flagAlt: flag.querySelector('.flag-alt'), shownAlt: null, shownHidden: false,
         times, alts: coords.map(c => c[2]), coords, offset, sampled, altitudeAt: heightAt,
         terrainProfile, onGround,
         setColor(css) {
@@ -899,9 +912,10 @@
       flag.style.setProperty('--ink', ink.toCssColorString());
     }
 
-    // Where each pilot's flag goes: { flight, x, y, alt } in canvas pixels for
-    // pilots flying now and not over the horizon. Used for the screen flags and
-    // for those drawn into exported video.
+    // Where each pilot's flag goes: { flight, x, y, alt, hidden } in canvas
+    // pixels for pilots flying now and not over the horizon; hidden if terrain
+    // is in the way. Used for the screen flags and for those drawn into
+    // exported video.
     function flagPlacements() {
       const time = viewer.clock.currentTime;
       const occluder = new Cesium.EllipsoidalOccluder(Cesium.Ellipsoid.WGS84, viewer.camera.positionWC);
@@ -910,13 +924,17 @@
         const pos = f.pilot.isAvailable(time) ? f.sampled.getValue(time) : undefined;
         const win = pos && occluder.isPointVisible(pos)
           ? Cesium.SceneTransforms.worldToWindowCoordinates(viewer.scene, pos) : undefined;
-        if (win) placed.push({ flight: f, x: win.x, y: win.y, alt: Math.round(f.altitudeAt(time)) });
+        if (win) {
+          const hidden = terrainBlocks(viewer.camera.positionWC, pos, 0);
+          placed.push({ flight: f, x: win.x, y: win.y, alt: Math.round(f.altitudeAt(time)), hidden });
+        }
       }
       return placed;
     }
 
     // Place each pilot's flag so its pointer touches the pilot on screen; hide
-    // it outside the flight's time span or when the pilot is over the horizon.
+    // it outside the flight's time span or when the pilot is over the horizon,
+    // and fade it while they are behind terrain.
     function updateFlags() {
       const placed = new Map(flagPlacements().map(pl => [pl.flight, pl]));
       for (const f of flights) {
@@ -930,6 +948,10 @@
         if (pl.alt !== f.shownAlt) {
           f.shownAlt = pl.alt;
           f.flagAlt.textContent = `${pl.alt} m`;
+        }
+        if (pl.hidden !== f.shownHidden) {
+          f.shownHidden = pl.hidden;
+          f.flag.style.opacity = pl.hidden ? FLAG_HIDDEN_OPACITY : '';
         }
       }
     }
@@ -977,6 +999,7 @@
         zoom: 1, // the user's zoom, as a multiple of the automatic range; reset by the buttons
         userPitch: 0, // the user's tilt, added to the automatic pitch; eases back to 0
         setPitch: null, // the pitch set last frame, to spot the user's tilt
+        losExtra: prev?.losExtra ?? 0, // extra steepening to see the subject over terrain
         lastMs: appNow(), paused: false,
       };
       document.getElementById('auto-camera').classList.toggle('active', mode === 'auto');
@@ -1059,6 +1082,68 @@
       return -Math.asin(Cesium.Math.clamp(needed, 0, 1));
     }
 
+    // Whether terrain comes within `margin` of the sight line from `from` to
+    // `to`. Uses the loaded terrain tiles; where none is loaded yet counts as
+    // clear. The last few percent by the target are skipped, so the ground
+    // beneath it doesn't count.
+    const losScratch = { a: new Cesium.Cartographic(), b: new Cesium.Cartographic(), c: new Cesium.Cartographic() };
+    function terrainBlocks(from, to, margin) {
+      const globe = viewer.scene.globe;
+      const a = Cesium.Cartographic.fromCartesian(from, undefined, losScratch.a);
+      const b = Cesium.Cartographic.fromCartesian(to, undefined, losScratch.b);
+      if (!a || !b) return false;
+      const p = losScratch.c;
+      for (let i = 1; i < LOS_SAMPLES; i++) {
+        const t = (i / LOS_SAMPLES) * 0.97;
+        p.longitude = a.longitude + (b.longitude - a.longitude) * t;
+        p.latitude = a.latitude + (b.latitude - a.latitude) * t;
+        const ground = globe.getHeight(p);
+        if (ground !== undefined && ground + margin > a.height + (b.height - a.height) * t) return true;
+      }
+      return false;
+    }
+
+    // The one pilot the camera is about: the followed pilot, a cinematic
+    // pilot shot's pilot, or the only tracklog loaded. Null if none, or if
+    // they aren't flying now.
+    function cameraSubject() {
+      let flight = null;
+      if (camCtl.mode === 'follow') flight = flights.find(f => f.id === followedId);
+      else if (camCtl.cine?.shot?.kind === 'pilot') flight = flights.find(f => f.id === camCtl.cine.shot.flightId);
+      else if (flights.length === 1) flight = flights[0];
+      return flight?.pilot.isAvailable(viewer.clock.currentTime) ? flight : null;
+    }
+
+    // How much steeper than `pitch` the camera must look (radians, >= 0) so
+    // terrain doesn't hide the subject pilot or their recent trail.
+    function lineOfSightSteepening(center, heading, pitch, range) {
+      const flight = cameraSubject();
+      if (!flight) return 0;
+      const now = viewer.clock.currentTime;
+      const points = [0, LOS_TRAIL_S]
+        .map(s => flight.sampled.getValue(Cesium.JulianDate.addSeconds(now, -s, new Cesium.JulianDate())))
+        .filter(Boolean);
+      const enu = Cesium.Transforms.eastNorthUpToFixedFrame(center);
+      const camera = new Cesium.Cartesian3();
+      const clearAt = (p) => {
+        // Camera position for this pitch, as lookAt places it.
+        const offset = Cesium.Cartesian3.fromElements(
+          -range * Math.cos(p) * Math.sin(heading), -range * Math.cos(p) * Math.cos(heading), -range * Math.sin(p), camera);
+        Cesium.Matrix4.multiplyByPoint(enu, offset, camera);
+        return points.every(pt => !terrainBlocks(camera, pt, LOS_MARGIN_M));
+      };
+      if (clearAt(pitch)) return 0;
+      // Steeper is clearer: bisect for the shallowest clear pitch.
+      const steepest = Cesium.Math.toRadians(USER_PITCH_LIMITS_DEG[0]);
+      if (pitch <= steepest || !clearAt(steepest)) return Math.max(pitch - steepest, 0);
+      let blocked = pitch, clear = steepest;
+      while (blocked - clear > Cesium.Math.toRadians(LOS_PITCH_RESOLUTION_DEG)) {
+        const mid = (blocked + clear) / 2;
+        if (clearAt(mid)) clear = mid; else blocked = mid;
+      }
+      return pitch - clear;
+    }
+
     // One-off fly-out to frame a single pilot's whole track. The camera modes
     // would immediately pull the view away again, so they are switched off.
     function showEntireTrack(flight) {
@@ -1117,7 +1202,12 @@
       if (!mapPointerDown) camCtl.userPitch *= Math.exp(-dt / USER_PITCH_RETURN_SECONDS);
       const [lo, hi] = USER_PITCH_LIMITS_DEG.map(Cesium.Math.toRadians);
       camCtl.userPitch = Cesium.Math.clamp(autoPitch + camCtl.userPitch, lo, hi) - autoPitch;
-      const pitch = terrainSafePitch(center, autoPitch + camCtl.userPitch, range);
+      let pitch = terrainSafePitch(center, autoPitch + camCtl.userPitch, range);
+      // Steepen to see over terrain hiding the subject pilot: fast in, slow out.
+      const need = lineOfSightSteepening(center, heading, pitch, range);
+      const settle = need > camCtl.losExtra ? LOS_RISE_SECONDS : LOS_RELAX_SECONDS;
+      camCtl.losExtra += (need - camCtl.losExtra) * (1 - Math.exp(-dt / settle));
+      pitch = Math.min(pitch, Math.max(pitch - camCtl.losExtra, lo));
       viewer.camera.lookAt(center, new Cesium.HeadingPitchRange(heading, pitch, range));
       camCtl.setPitch = viewer.camera.pitch;
     }
@@ -2441,7 +2531,7 @@
     function drawVideoFlags(ctx, s) {
       const fontPx = 12 * s;
       const thick = 18 * s, padEnd = 6 * s, padText = 2 * s, sepGap = 6 * s, pointer = 8 * s;
-      for (const { flight: f, x, y, alt } of flagPlacements()) {
+      for (const { flight: f, x, y, alt, hidden } of flagPlacements()) {
         const ink = f.flag.style.getPropertyValue('--ink') || '#000';
         const altText = `${alt} m`;
         ctx.font = `600 ${fontPx}px system-ui, sans-serif`;
@@ -2450,7 +2540,9 @@
         const altW = ctx.measureText(altText).width;
         const len = padEnd + padText + nameW + padText + sepGap + 1 * s + sepGap + padText + altW + padText + padEnd;
 
+        const alpha = hidden ? FLAG_HIDDEN_OPACITY : 1; // faded behind terrain, as on screen
         ctx.save();
+        ctx.globalAlpha = alpha;
         ctx.translate(x, y);
         textShadow(ctx, s);
         ctx.fillStyle = f.cssColor;
@@ -2468,9 +2560,9 @@
         ctx.font = `600 ${fontPx}px system-ui, sans-serif`;
         ctx.fillText(f.name, at, 0);
         at += nameW + padText + sepGap;
-        ctx.globalAlpha = 0.7;
+        ctx.globalAlpha = 0.7 * alpha;
         ctx.fillRect(at, -thick / 2, 1 * s, thick);
-        ctx.globalAlpha = 1;
+        ctx.globalAlpha = alpha;
         at += 1 * s + sepGap + padText;
         ctx.font = `400 ${fontPx}px system-ui, sans-serif`;
         ctx.fillText(altText, at, 0);
@@ -2658,6 +2750,7 @@
     (async () => {
       viewer = await createViewer();
       viewer.clock.multiplier = Number(playbar.speed.value);
+      viewer.scene.globe.depthTestAgainstTerrain = true; // tracks don't show through hills
       viewer.clock.onTick.addEventListener(updateAutoCamera);
       viewer.clock.onTick.addEventListener(updateTrackFade);
       viewer.clock.onTick.addEventListener(updatePlaybar);
