@@ -6,7 +6,8 @@ import pytest
 from fastapi import HTTPException
 
 from backend import app as app_module
-from backend.app import config, health, parse_tracklog
+from backend.app import config, health, parse_tracklog, strava_activities, strava_track
+from backend.strava import StravaAuthError
 from tests.fitfile import fit_file
 
 
@@ -17,13 +18,47 @@ def test_health():
 def test_config_reads_keys_from_environment(monkeypatch):
     monkeypatch.setenv("CESIUM_ION_TOKEN", "ion-token")
     monkeypatch.setenv("MAPTILER_KEY", "maptiler-key")
-    assert config() == {"cesium_ion_token": "ion-token", "maptiler_key": "maptiler-key"}
+    monkeypatch.setenv("STRAVA_SESSION", "abc123")
+    assert config() == {"cesium_ion_token": "ion-token", "maptiler_key": "maptiler-key", "strava": True}
 
 
 def test_config_without_keys(monkeypatch):
     monkeypatch.delenv("CESIUM_ION_TOKEN", raising=False)
     monkeypatch.delenv("MAPTILER_KEY", raising=False)
-    assert config() == {"cesium_ion_token": None, "maptiler_key": None}
+    monkeypatch.delenv("STRAVA_SESSION", raising=False)
+    assert config() == {"cesium_ion_token": None, "maptiler_key": None, "strava": False}
+
+
+def test_strava_endpoints_404_when_not_set_up(monkeypatch):
+    monkeypatch.delenv("STRAVA_SESSION", raising=False)
+    with pytest.raises(HTTPException) as e:
+        strava_activities()
+    assert e.value.status_code == 404
+
+
+def test_strava_auth_error_is_401(monkeypatch):
+    monkeypatch.setenv("STRAVA_SESSION", "abc123")
+
+    def expired(*args):
+        raise StravaAuthError("Strava session expired")
+    monkeypatch.setattr(app_module, "list_activities", expired)
+    monkeypatch.setattr(app_module, "download_track", expired)
+    for call in (strava_activities, lambda: strava_track(1)):
+        with pytest.raises(HTTPException) as e:
+            call()
+        assert e.value.status_code == 401
+
+
+def test_strava_track_falls_back_to_gpx(monkeypatch):
+    monkeypatch.setenv("STRAVA_SESSION", "abc123")
+    asked = []
+
+    def download(activity_id, fmt, max_bytes):
+        asked.append(fmt)
+        return b"PK\x03\x04 a zip we can't read" if fmt == "original" else TCX
+    monkeypatch.setattr(app_module, "download_track", download)
+    assert strava_track(5)["properties"]["num_fixes"] == 2
+    assert asked == ["original", "gpx"]
 
 
 def test_tracklog_format_detected_from_content():

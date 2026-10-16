@@ -9,6 +9,7 @@ from backend.fit import is_fit, parse_fit
 from backend.gpx import parse_gpx
 from backend.igc import decode_igc, parse_igc
 from backend.places import PlacesError, fetch_places
+from backend.strava import StravaAuthError, StravaError, download_track, is_configured, list_activities
 from backend.tcx import is_tcx, parse_tcx
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -30,6 +31,7 @@ def config() -> dict:
         "cesium_ion_token": os.environ.get("CESIUM_ION_TOKEN"),
         # Preferred over Cesium ion for terrain and imagery when set.
         "maptiler_key": os.environ.get("MAPTILER_KEY"),
+        "strava": is_configured(),
     }
 
 
@@ -49,6 +51,34 @@ async def upload_flight(file: UploadFile) -> dict:
     if len(data) > MAX_UPLOAD_BYTES:
         raise HTTPException(413, "File too large")
     return parse_tracklog(data)
+
+
+def _strava_call(fn, *args):
+    if not is_configured():
+        raise HTTPException(404, "Strava isn't set up: add STRAVA_SESSION to .env")
+    try:
+        return fn(*args)
+    except StravaAuthError as e:
+        raise HTTPException(401, str(e))
+    except StravaError as e:
+        raise HTTPException(502, str(e))
+
+
+@app.get("/api/strava/activities")
+def strava_activities(page: int = 1, q: str = "") -> dict:
+    return _strava_call(list_activities, max(page, 1), q)
+
+
+@app.get("/api/strava/activities/{activity_id}/track")
+def strava_track(activity_id: int) -> dict:
+    # The original upload (often FIT) has the most detail; Strava's own GPX
+    # export is the fallback when the original is missing or unreadable.
+    try:
+        return parse_tracklog(_strava_call(download_track, activity_id, "original", MAX_UPLOAD_BYTES))
+    except HTTPException as e:
+        if e.status_code == 401:
+            raise
+    return parse_tracklog(_strava_call(download_track, activity_id, "gpx", MAX_UPLOAD_BYTES))
 
 
 def parse_tracklog(data: bytes) -> dict:

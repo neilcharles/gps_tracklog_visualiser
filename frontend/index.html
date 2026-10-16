@@ -86,6 +86,23 @@
     #ex-status { margin: 10px 0 8px; font-variant-numeric: tabular-nums; }
     .ex-progress { height: 4px; background: rgba(255, 255, 255, .12); border-radius: 2px; margin-bottom: 14px; }
     #ex-bar { height: 100%; width: 0; background: #3b82f6; border-radius: 2px; }
+    /* Strava activity picker. */
+    #strava-dialog .modal-box { width: min(520px, 100%); max-height: calc(100vh - 32px); display: flex; flex-direction: column; }
+    #st-search { width: 100%; box-sizing: border-box; margin-bottom: 10px; }
+    #st-list { list-style: none; margin: 0 0 10px; padding: 0; overflow-y: auto; flex: 1; min-height: 80px; }
+    #st-list li { border-top: 1px solid #444; }
+    #st-list button {
+      width: 100%; text-align: left; border: none; border-radius: 0; background: transparent; padding: 7px 4px;
+      display: grid; grid-template-columns: 1fr auto; gap: 2px 10px;
+    }
+    #st-list button:hover:not(:disabled) { background: rgba(255, 255, 255, .08); }
+    #st-list .st-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #st-list .st-dist { color: #ccc; font-variant-numeric: tabular-nums; }
+    #st-list .st-meta { grid-column: 1 / -1; color: #aaa; font-size: 12px; }
+    #st-list .st-done .st-name::after { content: ' ✓'; color: #6ee7a0; }
+    #st-status { margin: 0 0 10px; font-size: 13px; color: #aaa; white-space: pre-line; }
+    #st-status.st-error { color: #ff6b6b; }
+    #st-status:empty { display: none; }
     #view-block {
       background: rgba(255, 255, 255, .07); border: 1px solid #555; border-radius: 6px;
       padding: 2px 10px; margin-bottom: 12px;
@@ -268,6 +285,7 @@
     </div>
     <h1>Tracklogs</h1>
     <button id="add-files">Add tracklogs…</button>
+    <button id="from-strava" hidden title="Pick one of your Strava activities">From Strava…</button>
     <button id="export-video" disabled title="Render the replay to an MP4 video">Export video…</button>
     <input type="file" id="upload" accept=".igc,.IGC,.gpx,.GPX,.fit,.FIT,.tcx,.TCX,.gz,.GZ" multiple>
     <ul id="flights"></ul>
@@ -335,6 +353,18 @@
         <button type="submit" id="ex-go" class="primary">Render video</button>
       </div>
     </form>
+  </div>
+  <div id="strava-dialog" class="modal" hidden>
+    <div class="modal-box">
+      <h2>Your Strava activities</h2>
+      <input type="search" id="st-search" placeholder="Search by name…" aria-label="Search activities">
+      <p id="st-status"></p>
+      <ul id="st-list"></ul>
+      <div class="ex-buttons">
+        <button type="button" id="st-more" hidden>Load more</button>
+        <button type="button" id="st-close" class="primary">Done</button>
+      </div>
+    </div>
   </div>
   <div id="export-progress" class="modal" hidden>
     <div class="modal-box">
@@ -570,6 +600,7 @@
 
     async function createViewer() {
       mapCfg = await (await fetch('/api/config')).json();
+      document.getElementById('from-strava').hidden = !mapCfg.strava;
       const common = {
         geocoder: false,
         homeButton: false,
@@ -2279,11 +2310,123 @@
       }
       err.textContent = errors.join('\n');
       ev.target.value = '';
+      afterFlightsAdded(wasEmpty);
+    });
+
+    function afterFlightsAdded(wasEmpty) {
       // Auto and cinematic cameras already frame the pilots; only fly in for the first load.
       const framing = camCtl?.mode === 'auto' || camCtl?.mode === 'cinematic';
       if (!framing || (wasEmpty && camCtl.mode === 'auto')) flyToAll();
       requestPlaces();
+    }
+
+    // Strava activity picker (local only, when STRAVA_SESSION is set):
+    // lists your activities a page at a time; clicking one loads its track.
+    const stravaUi = {
+      dialog: document.getElementById('strava-dialog'),
+      search: document.getElementById('st-search'),
+      status: document.getElementById('st-status'),
+      list: document.getElementById('st-list'),
+      more: document.getElementById('st-more'),
+      page: 0,
+      query: '',
+      gen: 0, // discards replies to superseded searches
+      searchTimer: null,
+    };
+
+    function setStravaStatus(text, isError = false) {
+      stravaUi.status.textContent = text;
+      stravaUi.status.classList.toggle('st-error', isError);
+    }
+
+    function stravaErrorText(res, body) {
+      const detail = body?.detail ?? res.statusText;
+      if (res.status !== 401) return detail;
+      return `${detail}\nWhile logged in on strava.com, open your browser's developer tools → Application ` +
+        '(Storage in Firefox) → Cookies → https://www.strava.com, copy the value of _strava4_session into .env ' +
+        'as STRAVA_SESSION=…, and restart the viewer.';
+    }
+
+    function stravaRow(a) {
+      const li = document.createElement('li');
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      const name = document.createElement('span');
+      name.className = 'st-name';
+      name.textContent = a.name;
+      const dist = document.createElement('span');
+      dist.className = 'st-dist';
+      dist.textContent = Number.isFinite(a.distance_m) ? `${(a.distance_m / 1000).toFixed(1)} km` : '';
+      const meta = document.createElement('span');
+      meta.className = 'st-meta';
+      const start = a.start ? new Date(a.start) : null;
+      const when = start && !isNaN(start) ? start.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '';
+      const dur = Number.isFinite(a.duration_s) ? `${Math.floor(a.duration_s / 3600)}h ${String(Math.floor(a.duration_s / 60) % 60).padStart(2, '0')}m` : '';
+      meta.textContent = [when, a.sport, dur].filter(Boolean).join(' · ');
+      btn.append(name, dist, meta);
+      btn.addEventListener('click', () => loadStravaActivity(a, li, btn));
+      li.append(btn);
+      return li;
+    }
+
+    async function loadStravaPage(reset) {
+      const gen = reset ? ++stravaUi.gen : stravaUi.gen;
+      if (reset) {
+        stravaUi.page = 0;
+        stravaUi.list.replaceChildren();
+      }
+      stravaUi.more.hidden = true;
+      setStravaStatus('Loading activities…');
+      const query = new URLSearchParams({ page: stravaUi.page + 1, q: stravaUi.query });
+      try {
+        const res = await fetch(`/api/strava/activities?${query}`);
+        const body = await res.json().catch(() => null);
+        if (gen !== stravaUi.gen) return;
+        if (!res.ok) return setStravaStatus(stravaErrorText(res, body), true);
+        stravaUi.page = body.page;
+        stravaUi.list.append(...body.activities.map(stravaRow));
+        stravaUi.more.hidden = !body.more;
+        const none = !stravaUi.list.children.length;
+        setStravaStatus(none ? (body.more ? 'No activities with GPS tracks on this page.' : 'No activities found.') : '');
+      } catch (e) {
+        if (gen === stravaUi.gen) setStravaStatus(`Couldn't load activities: ${e.message}`, true);
+      }
+    }
+
+    async function loadStravaActivity(a, li, btn) {
+      btn.disabled = true;
+      setStravaStatus(`Loading “${a.name}”…`);
+      const wasEmpty = !flights.length;
+      try {
+        const res = await fetch(`/api/strava/activities/${a.id}/track`);
+        const body = await res.json().catch(() => null);
+        if (!res.ok) throw new Error(`${a.name}: ${stravaErrorText(res, body)}`);
+        await addFlight(body, a.name);
+        li.classList.add('st-done');
+        setStravaStatus('');
+        afterFlightsAdded(wasEmpty);
+      } catch (e) {
+        setStravaStatus(e.message, true);
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    document.getElementById('from-strava').addEventListener('click', () => {
+      stravaUi.dialog.hidden = false;
+      if (!stravaUi.page) loadStravaPage(true);
+      stravaUi.search.focus();
     });
+    stravaUi.search.addEventListener('input', () => {
+      clearTimeout(stravaUi.searchTimer);
+      stravaUi.searchTimer = setTimeout(() => {
+        stravaUi.query = stravaUi.search.value.trim();
+        loadStravaPage(true);
+      }, 400);
+    });
+    stravaUi.more.addEventListener('click', () => loadStravaPage(false));
+    document.getElementById('st-close').addEventListener('click', () => { stravaUi.dialog.hidden = true; });
+    stravaUi.dialog.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') stravaUi.dialog.hidden = true; });
 
     // Video export. Frames are rendered one at a time: the clock and the
     // animation time (appNow) advance exactly one frame, the render is repeated

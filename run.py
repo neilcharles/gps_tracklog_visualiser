@@ -43,6 +43,11 @@ def report_map_provider() -> None:
         print(f"     Add MAPTILER_KEY or CESIUM_ION_TOKEN to {ENV_FILE} and restart.")
 
 
+def report_strava() -> None:
+    if os.environ.get("STRAVA_SESSION", "").strip():
+        print("Strava: activity browser on (using your strava.com session cookie).")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run Tracklog Viewer locally.")
     parser.add_argument("--port", type=int, default=int(os.environ.get("PORT", 8000)))
@@ -64,6 +69,7 @@ def main() -> None:
     if ENV_FILE.exists():
         load_env_file(ENV_FILE)
     report_map_provider()
+    report_strava()
 
     url = f"http://localhost:{args.port}"
     print(f"\nOpen {url} in your browser. Press Ctrl+C to stop.\n")

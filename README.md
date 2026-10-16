@@ -75,9 +75,46 @@ If you restrict your MapTiler key to certain websites (*Allowed HTTP origins*), 
 
 ## Tracks from Strava
 
-The viewer can't connect to Strava directly. Strava's API now needs a paid subscription just
-to create the app that would sign in to your account. You can get your own tracks out of Strava
-for free, though, and the viewer reads the files Strava gives you.
+Strava's official API now needs a paid subscription just to create the app that would sign in
+to your account, so the viewer doesn't use it. There are two other ways in: browse your
+activities from the viewer using your strava.com login (local only, unofficial), or export
+files from Strava yourself.
+
+### Browse your Strava activities (local only, unofficial)
+
+When you run the viewer on your own computer, a **From Strava…** button can list your Strava
+activities so you can pick one to view. It uses your strava.com login, which you copy from your
+browser into `.env` once:
+
+1. In Chrome or Edge, log in at [strava.com](https://www.strava.com) and stay on the site.
+2. Press `F12` to open the developer tools. Go to the **Application** tab (click **»** if it's
+   hidden), then in the left-hand list open **Storage → Cookies** and click
+   `https://www.strava.com`. In Firefox it's the **Storage** tab, then **Cookies**.
+3. Find the row named `_strava4_session` and double-click its **Value** to select it, then copy it.
+   (It's a string of letters and numbers like `a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6`.)
+4. Open `.env` in a text editor and paste it after `STRAVA_SESSION=`:
+   ```ini
+   STRAVA_SESSION=a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6
+   ```
+5. Restart `python run.py`. It prints "Strava: activity browser on", and **From Strava…** appears
+   under **Add tracklogs…**.
+
+The cookie keeps working for as long as that Strava login lasts. If you log out of Strava in
+that browser, or Strava ends the session, the picker says the session has expired: repeat steps
+1 to 5 with the new value. Other cookies in the list (`_strava_cpra`, `_currentH` and so on)
+aren't needed. If Strava ever starts needing more than `_strava4_session`, you can instead paste
+the whole `Cookie:` header of a strava.com request from the developer tools' **Network** tab.
+
+Treat the cookie like a password: it gives access to your Strava account. This uses Strava's
+website pages rather than its API, which is against Strava's terms. It only fetches your own
+activities, one request each time you click, but Strava could change those pages (and this would
+stop working) or limit your account, so use it at your own risk. Never set it on a deployed
+server.
+
+### Exporting files from Strava
+
+You can always get your own tracks out of Strava for free, and the viewer reads the files
+Strava gives you.
 
 **One activity:** open the activity on strava.com (it has to be your own), click the **⋯**
 menu and choose one of these:
