@@ -1,6 +1,6 @@
 # Tracklog Viewer
 
-View IGC and GPX tracklogs (paragliding flights, hike-and-fly, walks, rides) in 3D over
+View IGC, GPX, FIT and TCX tracklogs (paragliding flights, hike-and-fly, walks, rides) in 3D over
 real terrain and satellite imagery, in your browser.
 
 ![Four paragliding tracklogs replayed over MapTiler terrain and satellite imagery](screenshot.jpg)
@@ -51,7 +51,7 @@ See [Choosing a map key](#choosing-a-map-key) below for where to get one.
 python run.py
 ```
 
-Your browser opens at <http://localhost:8000>. Drag tracklogs onto the page to add them.
+Your browser opens at <http://localhost:8000>. Click **Add tracklogs…** to load files.
 Press `Ctrl+C` in the terminal to stop.
 
 Next time, you only need to activate the virtual environment (step 2, second line) and run
@@ -72,6 +72,37 @@ with neither, the map is flat.
 
 If you restrict your MapTiler key to certain websites (*Allowed HTTP origins*), add
 `localhost` to the list or the map will stay flat.
+
+## Tracks from Strava
+
+The viewer can't connect to Strava directly. Strava's API now needs a paid subscription just
+to create the app that would sign in to your account. You can get your own tracks out of Strava
+for free, though, and the viewer reads the files Strava gives you.
+
+**One activity:** open the activity on strava.com (it has to be your own), click the **⋯**
+menu and choose one of these:
+
+- **Export Original**: the file exactly as your device or app uploaded it, usually FIT
+  (Garmin, Wahoo, Coros, …), GPX or TCX. This is the best choice.
+- **Export GPX**: Strava's own GPX version of the track. Use it if *Export Original* isn't
+  offered, e.g. for activities recorded in the Strava app.
+
+Then click **Add tracklogs…** and choose the downloaded file.
+
+**All your activities at once:** in Strava go to **Settings → My Account → Download or Delete
+Your Account → Request your archive**. Strava's wording here changes from time to time. Strava
+emails you a link to a zip file. Unzip it (the viewer can't open the zip itself), and the
+`activities` folder has one file per activity. Files ending in `.fit.gz`, `.gpx.gz` or
+`.tcx.gz` load as they are, so there's no need to unzip those. The files are named by
+number. To find a particular flight, look it up in `activities.csv` in the same zip, which
+lists each file's date, name and type.
+
+For paragliding, if you also have your vario's IGC file, use that instead. IGC has
+barometric altitude, which is usually smoother and more accurate than a phone's or watch's GPS
+altitude.
+
+The same goes for Garmin Connect and most other apps: export the activity as FIT, GPX or TCX
+(the format names vary) and add it with **Add tracklogs…**.
 
 ## Troubleshooting
 

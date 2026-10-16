@@ -1,15 +1,19 @@
 import os
+import zlib
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, UploadFile
 from fastapi.staticfiles import StaticFiles
 
+from backend.fit import is_fit, parse_fit
 from backend.gpx import parse_gpx
 from backend.igc import decode_igc, parse_igc
 from backend.places import PlacesError, fetch_places
+from backend.tcx import is_tcx, parse_tcx
 
 ROOT = Path(__file__).resolve().parent.parent
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
+MAX_UNZIPPED_BYTES = 100 * 1024 * 1024  # stops a small .gz unpacking to fill memory
 
 app = FastAPI(title="Tracklog Viewer")
 
@@ -48,16 +52,33 @@ async def upload_flight(file: UploadFile) -> dict:
 
 
 def parse_tracklog(data: bytes) -> dict:
-    """Parse an IGC or GPX file, told apart by content: GPX is XML, IGC is plain text."""
-    if data.lstrip(b"\xef\xbb\xbf \t\r\n").startswith(b"<"):
-        try:
-            return parse_gpx(data)
-        except ValueError as e:
-            raise HTTPException(422, str(e))
+    """Parse an IGC, GPX, FIT or TCX file, optionally gzipped, told apart by content."""
+    if data.startswith(b"\x1f\x8b"):  # gzip, as in Strava's bulk export (.fit.gz, .gpx.gz, .tcx.gz)
+        data = _gunzip(data)
+    try:
+        if is_fit(data):
+            return parse_fit(data)
+        if data.lstrip(b"\xef\xbb\xbf \t\r\n").startswith(b"<"):  # XML: GPX or TCX
+            return parse_tcx(data) if is_tcx(data) else parse_gpx(data)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
     flight = parse_igc(decode_igc(data))
     if not flight.fixes:
-        raise HTTPException(422, "No valid track points found; is this an IGC or GPX file?")
+        raise HTTPException(422, "No valid track points found; is this an IGC, GPX, FIT or TCX file?")
     return flight.to_geojson()
+
+
+def _gunzip(data: bytes) -> bytes:
+    unzip = zlib.decompressobj(wbits=16 + zlib.MAX_WBITS)  # 16+: expect a gzip header
+    try:
+        out = unzip.decompress(data, MAX_UNZIPPED_BYTES)
+    except zlib.error:
+        raise HTTPException(422, "Not a valid .gz file") from None
+    if unzip.unconsumed_tail or len(out) >= MAX_UNZIPPED_BYTES:
+        raise HTTPException(413, "File too large once unzipped")
+    if not unzip.eof:
+        raise HTTPException(422, "The .gz file is incomplete (cut short while downloading?)")
+    return out
 
 
 app.mount("/", StaticFiles(directory=ROOT / "frontend", html=True), name="frontend")
