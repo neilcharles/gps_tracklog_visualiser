@@ -102,14 +102,12 @@ browser into `.env` once:
 The cookie keeps working for as long as that Strava login lasts. If you log out of Strava in
 that browser, or Strava ends the session, the picker says the session has expired: repeat steps
 1 to 5 with the new value. Other cookies in the list (`_strava_cpra`, `_currentH` and so on)
-aren't needed. If Strava ever starts needing more than `_strava4_session`, you can instead paste
-the whole `Cookie:` header of a strava.com request from the developer tools' **Network** tab.
+aren't needed.
 
 Treat the cookie like a password: it gives access to your Strava account. This uses Strava's
-website pages rather than its API, which is against Strava's terms. It only fetches your own
-activities, one request each time you click, but Strava could change those pages (and this would
-stop working) or limit your account, so use it at your own risk. Never set it on a deployed
-server.
+website pages rather than its API, which is technically against Strava's terms, but it only fetches your own
+activities. Strava could change those pages (and this would stop working) or limit your account,  so
+use it at your own risk. Never set a strava token on a deployed server.
 
 ### Exporting files from Strava
 
