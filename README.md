@@ -106,7 +106,7 @@ aren't needed.
 
 Treat the cookie like a password: it gives access to your Strava account. This uses Strava's
 website pages rather than its API, which is technically against Strava's terms, but it only fetches your own
-activities. Strava could change those pages (and this would stop working) or limit your account,  so
+activities. Strava could change those pages (and this would stop working) or limit your account, so
 use it at your own risk. Never set a strava token on a deployed server.
 
 ### Exporting files from Strava
